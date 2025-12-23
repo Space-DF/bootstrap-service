@@ -34,9 +34,7 @@ class Command(BaseCommand):
         org_name = kwargs.get("org_name") or os.getenv("ORG_NAME")
         org_slug = kwargs.get("org_slug") or os.getenv("ORG_SLUG")
         owner_email = kwargs.get("owner_email") or os.getenv("OWNER_EMAIL")
-        owner_password = kwargs.get("owner_password") or os.getenv(
-            "OWNER_PASSWORD"
-        )
+        owner_password = kwargs.get("owner_password") or os.getenv("OWNER_PASSWORD")
         org_id = str(uuid.uuid4())
 
         self.stdout.write(
@@ -57,9 +55,7 @@ class Command(BaseCommand):
             result = existing
         else:
             self.stdout.write(
-                self.style.SUCCESS(
-                    f"Provisioning organization '{org_slug}'..."
-                )
+                self.style.SUCCESS(f"Provisioning organization '{org_slug}'...")
             )
             result = provisioner.provision_tenant(org_id, org_slug, 1112)
 
@@ -89,7 +85,7 @@ class Command(BaseCommand):
 
         celery_app = import_string(settings.CELERY_APP)
         encrypted_password = make_password(owner_password)
-        
+
         celery_app.send_task(
             name="spacedf.tasks.new_organization",
             exchange=Exchange("new_organization", type="fanout"),
