@@ -26,9 +26,9 @@ INSTALLED_APPS = [
     "bootstrap_service",
 ]
 
-RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
+RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://default:password@rabbitmq:5672/")
 RABBITMQ_MANAGEMENT_API_URL = os.getenv(
-    "RABBITMQ_MANAGEMENT_API_URL", "http://localhost:15672"
+    "RABBITMQ_MANAGEMENT_API_URL", "http://rabbitmq:15672"
 )
 RABBITMQ_DEFAULT_USER = os.getenv("RABBITMQ_DEFAULT_USER", "default")
 RABBITMQ_DEFAULT_PASSWORD = os.getenv("RABBITMQ_DEFAULT_PASS", "password")
@@ -43,7 +43,7 @@ ORG_DISCOVERY_ROUTING_KEY = "org.discovery.request"
 
 # Celery Configuration (for sending tasks only)
 CELERY_APP = "bootstrap_service.celery.app"
-CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "amqp://guest:guest@localhost")
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "amqp://default:password@rabbitmq")
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 
 # EMQX Configuration
