@@ -20,6 +20,9 @@ until nc -z emqx 18083; do
 done
 echo "EMQX is ready"
 
+echo "Running database migrations..."
+python manage.py migrate
+
 echo "Running organization initialization..."
 python manage.py init_organization \
   --org-name="${ORG_NAME}" \
@@ -28,3 +31,7 @@ python manage.py init_organization \
   --owner-password="${OWNER_PASSWORD}"
 
 echo "Organization initialization complete"
+
+# Start Gunicorn and Celery
+gunicorn --worker-class gevent --bind 0.0.0.0:80 --access-logfile - bootstrap_service.wsgi \ 
+& celery -A bootstrap_service worker -l info -c 1
