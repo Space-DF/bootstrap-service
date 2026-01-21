@@ -11,12 +11,14 @@ RUN apk add --no-cache \
     bash \
     netcat-openbsd
 
-COPY ./django-common-utils /django-common-utils
-RUN pip install /django-common-utils
+# Install private repo using BuildKit secret
+RUN --mount=type=secret,id=github_token \
+    pip install --no-cache-dir \
+    git+https://$(cat /run/secrets/github_token)@github.com/Space-DF/django-common-utils.git@dev
 
-COPY ./bootstrap-service /bootstrap-service
-WORKDIR /bootstrap-service
+WORKDIR /app
 
+COPY . .
 RUN pip install -r requirements.txt
 
 RUN ["chmod", "+x", "./docker-entrypoint.sh"]
