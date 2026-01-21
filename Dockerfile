@@ -9,7 +9,8 @@ RUN apk add --no-cache \
     libffi-dev \
     curl \
     bash \
-    netcat-openbsd
+    netcat-openbsd \
+    git
 
 # Install private repo using BuildKit secret
 RUN --mount=type=secret,id=github_token \
