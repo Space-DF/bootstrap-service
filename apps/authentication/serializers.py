@@ -30,12 +30,16 @@ class TokenObtainPairSerializer(BaseTokenObtainPairSerializer):
             self.user, organization_slug=default_organization_slug
         )
 
-        return refresh_token, access_token
+        return refresh_token, access_token, default_organization_slug
 
     def get_response_data(self):
-        refresh_token, access_token = self.get_tokens()
+        refresh_token, access_token, default_organization = self.get_tokens()
 
-        return {"refresh": str(refresh_token), "access": str(access_token)}
+        return {
+            "refresh": str(refresh_token),
+            "access": str(access_token),
+            "default_organization": default_organization,
+        }
 
 
 class AuthTokenPairSerializer(TokenPairSerializer):
