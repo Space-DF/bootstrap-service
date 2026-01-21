@@ -162,6 +162,8 @@ ORG_CONSOLE_QUEUE = "console.org.discovery.queue"
 ORG_DISCOVERY_ROUTING_KEY = "org.discovery.request"
 
 # Celery Configuration (for sending tasks only)
+CELERY_ACKS_LATE = True
+CELERYD_PREFETCH_MULTIPLIER = 1
 CELERY_APP = "bootstrap_service.celery.app"
 CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "amqp://default:password@rabbitmq")
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
@@ -206,3 +208,13 @@ DATABASES = {
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "")
 EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": os.getenv("REDIS_HOST", "redis://127.0.0.1:6379/1"),
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+        },
+    }
+}

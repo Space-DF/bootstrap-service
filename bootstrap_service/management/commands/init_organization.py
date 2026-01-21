@@ -16,13 +16,12 @@ import os
 import uuid
 from datetime import datetime
 
+from common.celery.task_senders import send_task
 from common.rabitmq.rabbitmq_provisioner import RabbitMQProvisioner
-from django.conf import settings
 from django.contrib.auth.hashers import make_password
 from django.core.management.base import BaseCommand
+from django.forms.models import model_to_dict
 from django.utils import timezone
-from django.utils.module_loading import import_string
-from kombu import Exchange
 
 from apps.authentication.models import RootUser
 from apps.organization.models import Organization
@@ -102,9 +101,10 @@ class Command(BaseCommand):
             },
         )
 
-    def _create_organization_with_roles(self, org_name, org_slug, result):
+    def _create_organization_with_roles(self, org_id, org_name, org_slug, result):
         """Create organization with default policies and roles."""
         organization = Organization.objects.create(
+            id=org_id,
             name=org_name,
             slug_name=org_slug,
             logo="",
@@ -135,23 +135,23 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS("Created default roles"))
         return organization, owner_role
 
-    def _send_celery_task(self, org_id, org_name, org_slug, user, encrypted_password):
+    def _send_celery_task(self, org_id, org_name, org_slug, user):
         """Send initialization task to Celery."""
-        celery_app = import_string(settings.CELERY_APP)
-        celery_app.send_task(
-            name="spacedf.tasks.new_organization",
-            exchange=Exchange("new_organization", type="fanout"),
-            routing_key="new_organization",
-            kwargs={
+        send_task(
+            name="new_organization",
+            message={
                 "id": org_id,
                 "name": org_name,
                 "slug_name": org_slug,
                 "is_active": True,
-                "owner": {
-                    "id": str(user.id),
-                    "email": user.email,
-                    "password": encrypted_password,
-                },
+                "owner": model_to_dict(
+                    user,
+                    fields=[
+                        "id",
+                        "email",
+                        "password",
+                    ],
+                ),
                 "created_at": datetime.now().isoformat(),
                 "updated_at": datetime.now().isoformat(),
             },
@@ -159,12 +159,9 @@ class Command(BaseCommand):
 
     def _send_delete_celery_task(self, org_slug):
         """Send organization deletion task to Celery."""
-        celery_app = import_string(settings.CELERY_APP)
-        celery_app.send_task(
-            name="spacedf.tasks.delete_organization",
-            exchange=Exchange("delete_organization", type="fanout"),
-            routing_key="delete_organization",
-            kwargs={
+        send_task(
+            name="delete_organization",
+            message={
                 "slug_name": org_slug,
             },
         )
@@ -227,7 +224,7 @@ class Command(BaseCommand):
             )
             self.stdout.write(self.style.SUCCESS(f"Created owner user: {owner_email}"))
             _, owner_role = self._create_organization_with_roles(
-                org_name, org_slug, result
+                org_id, org_name, org_slug, result
             )
             OrganizationRoleUser(root_user=user, organization_role=owner_role).save()
             self.stdout.write(
@@ -236,7 +233,7 @@ class Command(BaseCommand):
 
             # Publish organization event
             self._publish_org_event(org_id, org_slug, org_name, result)
-            self._send_celery_task(org_id, org_name, org_slug, user, encrypted_password)
+            self._send_celery_task(org_id, org_name, org_slug, user)
         else:
             self.stdout.write(
                 self.style.WARNING(

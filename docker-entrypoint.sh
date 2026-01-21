@@ -23,6 +23,10 @@ echo "EMQX is ready"
 echo "Running database migrations..."
 python manage.py migrate
 
+echo "Starting Celery worker..."
+celery -A bootstrap_service worker -l info -c 1 &
+sleep 5
+
 echo "Running organization initialization..."
 python manage.py init_organization \
   --org-name="${ORG_NAME}" \
@@ -30,8 +34,8 @@ python manage.py init_organization \
   --owner-email="${OWNER_EMAIL}" \
   --owner-password="${OWNER_PASSWORD}"
 
-echo "Organization initialization complete"
-
-# Start Gunicorn and Celery
-gunicorn --worker-class gevent --bind 0.0.0.0:80 --access-logfile - bootstrap_service.wsgi \ 
-& celery -A bootstrap_service worker -l info -c 1
+echo "Starting Gunicorn..."
+exec gunicorn bootstrap_service.wsgi:application \
+  --worker-class gevent \
+  --bind 0.0.0.0:80 \
+  --access-logfile -
