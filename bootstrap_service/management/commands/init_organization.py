@@ -78,10 +78,11 @@ class Command(BaseCommand):
 
     def _publish_org_event(self, org_id, org_slug, org_name, result):
         """Publish organization created event."""
+        now_time = timezone.now().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
         publish_org_event(
             "org.created",
             str(uuid.uuid4()),
-            timezone.now().isoformat(),
+            now_time,
             {
                 "id": org_id,
                 "slug": org_slug,
@@ -96,8 +97,8 @@ class Command(BaseCommand):
                     "transformed_queue", f"{org_slug}.transformed.data.queue"
                 ),
                 "is_active": True,
-                "created_at": timezone.now().isoformat(),
-                "updated_at": timezone.now().isoformat(),
+                "created_at": now_time,
+                "updated_at": now_time,
             },
         )
 
@@ -171,15 +172,16 @@ class Command(BaseCommand):
         org_slug = organization.slug_name
         org_id = organization.id
         vhost_name = organization.rabbitmq_vhost
+        now_time = timezone.now().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
         publish_org_event(
             "org.deleted",
             str(uuid.uuid4()),
-            timezone.now().isoformat(),
+            now_time,
             {
                 "id": str(org_id),
                 "slug": org_slug,
-                "deleted_at": timezone.now().isoformat(),
+                "deleted_at": now_time,
             },
         )
 
