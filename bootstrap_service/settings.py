@@ -16,13 +16,19 @@
 Django settings for bootstrap_service project.
 """
 
+import importlib
 import os
 from datetime import timedelta
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
-COMMON_UTILS_DIR = Path(__file__).resolve().parent.parent.parent / "django-common-utils"
+
+spec = importlib.util.find_spec("common")
+if spec and spec.submodule_search_locations:
+    COMMON_UTILS_DIR = Path(list(spec.submodule_search_locations)[0]).parent
+else:
+    raise ImportError
 
 SECRET_KEY = os.getenv(
     "SECRET_KEY", "django-insecure-*$0b8ibx7uzk45cm+fxw7*jj(yzi2ye!l4+!dnyxa-u-nbuz=q"
