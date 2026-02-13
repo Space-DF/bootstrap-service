@@ -20,6 +20,8 @@ until nc -z emqx 18083; do
 done
 echo "EMQX is ready"
 
+python manage.py collectstatic --noinput
+
 echo "Running database migrations..."
 python manage.py migrate
 
