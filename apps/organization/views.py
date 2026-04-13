@@ -63,4 +63,7 @@ class CheckOrganizationView(views.APIView):
         else:
             result = "The organization is valid."
 
-        return Response({"result": result}, status=status.HTTP_200_OK)
+        return Response(
+            {"result": result, "template": organization.template},
+            status=status.HTTP_200_OK,
+        )
