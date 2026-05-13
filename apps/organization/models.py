@@ -1,5 +1,6 @@
 import logging
 
+from common.apps.organization.constants import OrganizationTemplate
 from common.models.base_model import BaseModel
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
@@ -31,4 +32,7 @@ class Organization(BaseModel):
     )
     rabbitmq_provisioned_at = models.DateTimeField(
         blank=True, null=True, help_text="When RabbitMQ resources were provisioned"
+    )
+    template = models.CharField(
+        max_length=256, choices=OrganizationTemplate.choices, blank=True, null=True
     )
