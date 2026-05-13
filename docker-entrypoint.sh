@@ -5,6 +5,7 @@ echo "Organization Service Starting..."
 echo "ORG_NAME: ${ORG_NAME:-not set}"
 echo "ORG_SLUG: spacedf"
 echo "OWNER_EMAIL: ${OWNER_EMAIL:-not set}"
+echo "ORG_TEMPLATE: ${ORG_TEMPLATE:-not set}"
 
 echo "Waiting for RabbitMQ AMQP on rabbitmq:5672..."
 until nc -z rabbitmq 5672; do
@@ -33,6 +34,7 @@ echo "Running organization initialization..."
 python manage.py init_organization \
   --org-name="${ORG_NAME}" \
   --org-slug="spacedf" \
+  --org-template="${ORG_TEMPLATE}" \
   --owner-email="${OWNER_EMAIL}" \
   --owner-password="${OWNER_PASSWORD}"
 

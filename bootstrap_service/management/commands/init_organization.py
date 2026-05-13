@@ -55,6 +55,7 @@ class Command(BaseCommand):
         return {
             "org_name": kwargs.get("org_name") or os.getenv("ORG_NAME"),
             "org_slug": kwargs.get("org_slug") or os.getenv("ORG_SLUG"),
+            "org_template": kwargs.get("org_template") or os.getenv("ORG_TEMPLATE"),
             "owner_email": kwargs.get("owner_email") or os.getenv("OWNER_EMAIL"),
             "owner_password": kwargs.get("owner_password")
             or os.getenv("OWNER_PASSWORD"),
@@ -136,7 +137,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS("Created default roles"))
         return organization, owner_role
 
-    def _send_celery_task(self, org_id, org_name, org_slug, user):
+    def _send_celery_task(self, org_id, org_name, org_slug, org_template, user):
         """Send initialization task to Celery."""
         send_task(
             name="new_organization",
@@ -145,6 +146,7 @@ class Command(BaseCommand):
                 "name": org_name,
                 "slug_name": org_slug,
                 "is_active": True,
+                "template": org_template,
                 "owner": model_to_dict(
                     user,
                     fields=[
@@ -198,7 +200,11 @@ class Command(BaseCommand):
 
     def handle(self, *args, **kwargs):
         config = self._get_config(**kwargs)
-        org_name, org_slug = config["org_name"], config["org_slug"]
+        org_name, org_slug, org_template = (
+            config["org_name"],
+            config["org_slug"],
+            config.get("org_template", ""),
+        )
         owner_email, owner_password = config["owner_email"], config["owner_password"]
         encrypted_password = make_password(owner_password)
         org_id = str(uuid.uuid4())
@@ -235,7 +241,7 @@ class Command(BaseCommand):
 
             # Publish organization event
             self._publish_org_event(org_id, org_slug, org_name, result)
-            self._send_celery_task(org_id, org_name, org_slug, user)
+            self._send_celery_task(org_id, org_name, org_slug, org_template, user)
         else:
             self.stdout.write(
                 self.style.WARNING(
