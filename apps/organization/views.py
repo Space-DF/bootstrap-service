@@ -8,6 +8,8 @@ from rest_framework.response import Response
 from apps.organization.models import Organization
 from apps.organization.serializers import OrganizationSerializer
 from apps.organization.services import get_owner_name_query_set
+from apps.organization_setting.models import OrganizationSetting
+from apps.organization_setting.serializers import OrganizationSettingSerializer
 from utils.views import OrganizationRetrieveAPIView
 
 
@@ -63,7 +65,19 @@ class CheckOrganizationView(views.APIView):
         else:
             result = "The organization is valid."
 
+        setting = (
+            OrganizationSetting.objects.filter(organization=organization)
+            .prefetch_related("themes")
+            .first()
+        )
+
         return Response(
-            {"result": result, "template": organization.template},
+            {
+                "result": result,
+                "template": organization.template,
+                "setting": OrganizationSettingSerializer(setting).data
+                if setting
+                else None,
+            },
             status=status.HTTP_200_OK,
         )

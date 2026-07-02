@@ -61,6 +61,7 @@ INSTALLED_APPS = [
     "bootstrap_service",
     "apps.organization",
     "apps.custom_page",
+    "apps.organization_setting",
     "apps.organization_roles",
     "apps.authentication",
 ]

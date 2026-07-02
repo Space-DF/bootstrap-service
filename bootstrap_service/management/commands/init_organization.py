@@ -32,6 +32,7 @@ from apps.organization_roles.services import (
     create_default_organization_role_by_policy_tag,
     create_default_policies,
 )
+from apps.organization_setting.services import create_default_organization_setting
 from utils.check_tenant_exists import check_tenant_exists
 from utils.event_publisher import publish_org_event
 
@@ -119,6 +120,7 @@ class Command(BaseCommand):
 
         create_default_policies(organization)
         create_default_pages(organization)
+        create_default_organization_setting(organization)
         self.stdout.write(self.style.SUCCESS("Created default policies"))
 
         role_mappings = [
