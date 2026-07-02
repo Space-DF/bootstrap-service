@@ -10,7 +10,11 @@ class UpdateOrganizationSettingView(generics.UpdateAPIView):
     serializer_class = UpdateOrganizationSettingSerializer
     queryset = OrganizationSetting.objects.select_related(
         "organization"
-    ).prefetch_related("themes")
+    ).prefetch_related(
+        "themes",
+        "organization__organization_custom_emails",
+        "organization__organization_custom_page",
+    )
 
     def get_object(self):
         organization = get_object_or_404(

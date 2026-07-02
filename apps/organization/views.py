@@ -67,7 +67,12 @@ class CheckOrganizationView(views.APIView):
 
         setting = (
             OrganizationSetting.objects.filter(organization=organization)
-            .prefetch_related("themes")
+            .select_related("organization")
+            .prefetch_related(
+                "themes",
+                "organization__organization_custom_emails",
+                "organization__organization_custom_page",
+            )
             .first()
         )
 
