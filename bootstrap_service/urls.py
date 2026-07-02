@@ -54,5 +54,6 @@ urlpatterns = [
     path("bootstrap/admin/", admin.site.urls),
     # apis
     path("api/bootstrap/", include("apps.authentication.urls")),
+    path("api/", include("apps.custom_page.urls")),
     path("api/", include("apps.organization.urls")),
 ]

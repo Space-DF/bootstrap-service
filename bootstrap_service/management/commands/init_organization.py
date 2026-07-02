@@ -24,6 +24,7 @@ from django.forms.models import model_to_dict
 from django.utils import timezone
 
 from apps.authentication.models import RootUser
+from apps.custom_page.service import create_default_pages
 from apps.organization.models import Organization
 from apps.organization_roles.constants import OrganizationRoleType
 from apps.organization_roles.models import OrganizationRoleUser
@@ -117,6 +118,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"Created organization: {org_name}"))
 
         create_default_policies(organization)
+        create_default_pages(organization)
         self.stdout.write(self.style.SUCCESS("Created default policies"))
 
         role_mappings = [

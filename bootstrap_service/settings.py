@@ -60,6 +60,7 @@ INSTALLED_APPS = [
     "common.apps.refresh_tokens",
     "bootstrap_service",
     "apps.organization",
+    "apps.custom_page",
     "apps.organization_roles",
     "apps.authentication",
 ]
