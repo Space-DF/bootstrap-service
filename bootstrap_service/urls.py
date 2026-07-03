@@ -50,7 +50,7 @@ urlpatterns = [
         name="schema-swagger-ui",
     ),
     *(
-        [path("silk/console/", include("silk.urls", namespace="silk"))]
+        [path("silk/bootstrap/", include("silk.urls", namespace="silk"))]
         if settings.SILK_ENABLED
         else []
     ),
