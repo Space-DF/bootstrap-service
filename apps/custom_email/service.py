@@ -17,7 +17,11 @@ def get_theme_logo_url(instance, theme_key):
     if not setting:
         return f"{host}/static/images/branding/{default_logo}"
 
-    theme = setting.themes.filter(theme_key=theme_key).first()
+    themes = getattr(setting, "_prefetched_objects_cache", {}).get("themes")
+    if themes is not None:
+        theme = next((item for item in themes if item.theme_key == theme_key), None)
+    else:
+        theme = setting.themes.filter(theme_key=theme_key).first()
 
     if not theme or not theme.logo:
         return f"{host}/static/images/branding/{default_logo}"
