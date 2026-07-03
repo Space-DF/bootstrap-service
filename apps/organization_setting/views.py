@@ -5,7 +5,7 @@ from rest_framework.response import Response
 from apps.organization.models import Organization
 from apps.organization_setting.models import OrganizationSetting
 from apps.organization_setting.serializers import (
-    OrganizationConfigSerializer,
+    OrganizationSettingsExpandedSerializer,
     UpdateOrganizationSettingSerializer,
 )
 
@@ -39,7 +39,7 @@ class UpdateOrganizationSettingView(generics.UpdateAPIView):
         serializer.is_valid(raise_exception=True)
         updated_instance = serializer.save()
         fresh_instance = self.get_queryset().get(pk=updated_instance.pk)
-        response_serializer = OrganizationConfigSerializer(
+        response_serializer = OrganizationSettingsExpandedSerializer(
             fresh_instance,
             context=self.get_serializer_context(),
         )

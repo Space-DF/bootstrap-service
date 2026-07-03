@@ -59,7 +59,7 @@ class OrganizationSettingSerializer(serializers.ModelSerializer):
         }
 
 
-class OrganizationConfigSerializer(OrganizationSettingSerializer):
+class OrganizationSettingsExpandedSerializer(OrganizationSettingSerializer):
     custom_pages = CustomPageSerializer(
         source="organization.organization_custom_page",
         many=True,
@@ -75,6 +75,19 @@ class OrganizationConfigSerializer(OrganizationSettingSerializer):
         fields = OrganizationSettingSerializer.Meta.fields + [
             "custom_pages",
             "custom_emails",
+        ]
+
+
+class OrganizationSettingsWithCustomPagesSerializer(OrganizationSettingSerializer):
+    custom_pages = CustomPageSerializer(
+        source="organization.organization_custom_page",
+        many=True,
+        read_only=True,
+    )
+
+    class Meta(OrganizationSettingSerializer.Meta):
+        fields = OrganizationSettingSerializer.Meta.fields + [
+            "custom_pages",
         ]
 
 
