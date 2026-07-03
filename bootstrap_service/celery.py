@@ -19,6 +19,7 @@ app.autodiscover_tasks()
 
 TASKS_CONSOLE = [
     constants.CONSOLE_SERVICE_ADD_OR_REMOVE_SPACE,
+    constants.CONSOLE_SERVICE_DELETE_UPLOAD_FILE,
 ]
 
 existing = {queue.name: queue for queue in (app.conf.task_queues or ())}

@@ -108,22 +108,26 @@ default_policies = [
 
 
 def create_default_policies(organization):
-    organization_policies = []
-    for policy in default_policies:
-        organization_policy = OrganizationPolicy(**policy, organization=organization)
-        organization_policy.save()
-        organization_policies.append(organization_policy.pk)
+    organization_policies = [
+        OrganizationPolicy(**policy, organization=organization)
+        for policy in default_policies
+    ]
+    OrganizationPolicy.objects.bulk_create(organization_policies)
     return organization_policies
 
 
-def create_default_organization_role_by_policy_tag(name, tag, organization):
-    policies = OrganizationPolicy.objects.filter(
-        tags__icontains=tag, organization=organization
-    ).all()
+def create_default_organization_role_by_policy_tag(
+    name, tag, organization, policies=None
+):
+    if policies is None:
+        policies = OrganizationPolicy.objects.filter(
+            tags__contains=[tag], organization=organization
+        ).all()
+    else:
+        policies = [policy for policy in policies if tag in policy.tags]
     organization_role = OrganizationRole(name=name, organization=organization)
     organization_role.save()
     organization_role.policies.set([policy.pk for policy in policies])
-    organization_role.save()
     return organization_role
 
 

@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from common.apps.refresh_tokens.serializers import TokenPairSerializer
+from common.utils.email_context import get_email_context, render_email_format
 from common.utils.send_email import send_email
 from common.utils.token_jwt import generate_token
 from django.conf import settings
@@ -22,10 +23,9 @@ from apps.authentication.serializers import (
     SendEmailSerializer,
     UserSerializer,
 )
-from apps.authentication.services import (
-    create_organization_access_token,
-    render_email_format,
-)
+from apps.authentication.services import create_organization_access_token
+from apps.custom_email.constants import EmailTypes
+from apps.custom_email.service import get_custom_email_item
 
 
 class LoginAPIView(TokenObtainPairView):
@@ -69,11 +69,15 @@ class SendEmailToConfirmView(generics.GenericAPIView):
 
         subject = "🔒 Forgot your password? Reset now"
         token = generate_token({"email": email})
-        data = {
-            "redirect_url": f"{settings.HOST_FRONTEND_ADMIN}/auth/reset-password?token={token}",
-            "host": settings.HOST,
-        }
-        message = render_email_format("email_forget_password.html", data)
+        custom_email_item = get_custom_email_item(EmailTypes.RESET_PASSWORD)
+        email_context = get_email_context(
+            {
+                "host": settings.HOST,
+                "redirect_url": f"{settings.HOST_FRONTEND_ADMIN}/auth/reset-password?token={token}",
+            },
+            custom_email=custom_email_item,
+        )
+        message = render_email_format("email_forget_password.html", email_context)
         send_email(settings.DEFAULT_FROM_EMAIL, [email], subject, message)
         return Response(
             {

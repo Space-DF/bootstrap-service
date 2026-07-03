@@ -4,9 +4,7 @@ import requests
 from common.apps.refresh_tokens.services import create_jwt_tokens
 from django.conf import settings
 from django.core.cache import cache
-from django.template.loader import render_to_string
 from rest_framework import status
-from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
 from apps.authentication.models import RootUser
@@ -92,14 +90,3 @@ def handle_access_token(access_token, provider: Literal["GOOGLE"]):
             "default_organization": default_organization_slug,
         },
     )
-
-
-def render_email_format(template, data):
-    try:
-        html_message = render_to_string(
-            template,
-            data,
-        )
-        return html_message
-    except Exception as e:
-        raise ValidationError({"error": f"Error: {e}"})

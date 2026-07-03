@@ -24,6 +24,8 @@ from django.forms.models import model_to_dict
 from django.utils import timezone
 
 from apps.authentication.models import RootUser
+from apps.custom_email.service import create_default_organization_email
+from apps.custom_page.service import create_default_pages
 from apps.organization.models import Organization
 from apps.organization_roles.constants import OrganizationRoleType
 from apps.organization_roles.models import OrganizationRoleUser
@@ -31,6 +33,7 @@ from apps.organization_roles.services import (
     create_default_organization_role_by_policy_tag,
     create_default_policies,
 )
+from apps.organization_setting.services import create_default_organization_setting
 from utils.check_tenant_exists import check_tenant_exists
 from utils.event_publisher import publish_org_event
 
@@ -116,7 +119,11 @@ class Command(BaseCommand):
         )
         self.stdout.write(self.style.SUCCESS(f"Created organization: {org_name}"))
 
-        create_default_policies(organization)
+        organization_policies = create_default_policies(organization)
+
+        create_default_pages(organization)
+        create_default_organization_email(organization)
+        create_default_organization_setting(organization)
         self.stdout.write(self.style.SUCCESS("Created default policies"))
 
         role_mappings = [
@@ -129,7 +136,7 @@ class Command(BaseCommand):
         owner_role = None
         for role_type, policy_tag in role_mappings:
             role = create_default_organization_role_by_policy_tag(
-                role_type, policy_tag, organization
+                role_type, policy_tag, organization, organization_policies
             )
             if role_type == OrganizationRoleType.OWNER_ROLE:
                 owner_role = role
