@@ -9,9 +9,6 @@ from apps.organization_setting.models import OrganizationSetting, OrganizationTh
 
 
 class OrganizationThemeSerializer(serializers.ModelSerializer):
-    url_logo = serializers.SerializerMethodField()
-    url_favicon = serializers.SerializerMethodField()
-
     class Meta:
         model = OrganizationTheme
         fields = [
@@ -20,42 +17,28 @@ class OrganizationThemeSerializer(serializers.ModelSerializer):
             "favicon",
             "logo",
             "theme_colors",
-            "url_logo",
-            "url_favicon",
         ]
         extra_kwargs = {
             "id": {"read_only": True},
             "favicon": {"write_only": True},
             "logo": {"write_only": True},
-            "url_logo": {"read_only": True},
-            "url_favicon": {"read_only": True},
         }
 
-    def get_url_logo(self, instance):
-        host = settings.HOST.rstrip("/")
-        if not instance.logo:
-            default_logo = (
-                "logo_white.png" if instance.theme_key == "dark" else "logo_black.png"
-            )
-            return f"{host}/static/images/branding/{default_logo}"
-        return get_presigned_url(
-            settings.AWS_S3.get("AWS_STORAGE_BUCKET_NAME"),
-            f"uploads/{instance.logo}",
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        aws_s3 = getattr(settings, "AWS_S3", None)
+        bucket_name = aws_s3.get("AWS_STORAGE_BUCKET_NAME") if aws_s3 else None
+        data["url_logo"] = (
+            get_presigned_url(bucket_name, f"uploads/{instance.logo}")
+            if instance.logo and bucket_name
+            else None
         )
-
-    def get_url_favicon(self, instance):
-        host = settings.HOST.rstrip("/")
-        if not instance.favicon:
-            default_favicon = (
-                "favicon_white.png"
-                if instance.theme_key == "dark"
-                else "favicon_black.png"
-            )
-            return f"{host}/static/images/branding/{default_favicon}"
-        return get_presigned_url(
-            settings.AWS_S3.get("AWS_STORAGE_BUCKET_NAME"),
-            f"uploads/{instance.favicon}",
+        data["url_favicon"] = (
+            get_presigned_url(bucket_name, f"uploads/{instance.favicon}")
+            if instance.favicon and bucket_name
+            else None
         )
+        return data
 
 
 class OrganizationSettingSerializer(serializers.ModelSerializer):
