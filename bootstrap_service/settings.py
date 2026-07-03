@@ -36,6 +36,7 @@ SECRET_KEY = os.getenv(
 
 DJANGO_SETTINGS_MODULE = "bootstrap_service.settings"
 ROOT_URLCONF = "bootstrap_service.urls"
+SILK_ENABLED = os.getenv("ENV", "dev").lower() == "dev"
 
 DEBUG = True
 ALLOWED_HOSTS = ["*"]
@@ -113,6 +114,9 @@ ACCOUNT_EMAIL_REQUIRED = True
 ACCOUNT_USERNAME_REQUIRED = False
 ACCOUNT_AUTHENTICATION_METHOD = "email"
 
+if SILK_ENABLED:
+    INSTALLED_APPS.append("silk")
+
 # Middleware configuration (required for admin application)
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -123,6 +127,23 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
+
+if SILK_ENABLED:
+    MIDDLEWARE.insert(2, "silk.middleware.SilkyMiddleware")
+
+    def silky_intercept_func(request):
+        return request.path.startswith("/api/")
+
+    SILKY_INTERCEPT_FUNC = silky_intercept_func
+    SILKY_AUTHENTICATION = False
+    SILKY_AUTHORISATION = False
+    SILKY_PYTHON_PROFILER = True
+    SILKY_PYTHON_PROFILER_BINARY = False
+    SILKY_MAX_REQUEST_BODY_SIZE = 1024
+    SILKY_MAX_RESPONSE_BODY_SIZE = 0
+    SILKY_META = True
+    SILKY_INTERCEPT_PERCENT = 10
+    SILKY_MAX_RECORDED_REQUESTS_CHECK_PERCENT = 10
 
 # Internationalization
 # https://docs.djangoproject.com/en/3.2/topics/i18n/
