@@ -9,7 +9,9 @@ from apps.organization.models import Organization
 from apps.organization.serializers import OrganizationSerializer
 from apps.organization.services import get_owner_name_query_set
 from apps.organization_setting.models import OrganizationSetting
-from apps.organization_setting.serializers import OrganizationSettingSerializer
+from apps.organization_setting.serializers import (
+    OrganizationSettingsWithCustomPagesSerializer,
+)
 from utils.views import OrganizationRetrieveAPIView
 
 
@@ -80,7 +82,7 @@ class CheckOrganizationView(views.APIView):
             {
                 "result": result,
                 "template": organization.template,
-                "setting": OrganizationSettingSerializer(setting).data
+                "setting": OrganizationSettingsWithCustomPagesSerializer(setting).data
                 if setting
                 else None,
             },
