@@ -38,7 +38,7 @@ DEFAULT_LIGHT_THEME_VALUES = {
     "logo": "",
     "theme_colors": {
         "primary": "#171A28",
-        "outline": "#FFFFFF",
+        "outline": "#171A28",
         "background": "#FFFFFF",
         "text": "#1F2937",
         "input": "#F0F1F3",

@@ -149,9 +149,6 @@ class UpdateOrganizationSettingSerializer(serializers.Serializer):
             )
             self._save_instance(custom_email, custom_email_data)
 
-    def to_representation(self, instance):
-        return OrganizationConfigSerializer(instance, context=self.context).data
-
     def update(self, instance, validated_data):
         with transaction.atomic():
             custom_pages_data = validated_data.pop("custom_pages", [])

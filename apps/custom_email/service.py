@@ -1,5 +1,31 @@
+from common.apps.upload_file.service import get_presigned_url
+from django.conf import settings
+
 from apps.custom_email.constants import EmailTypes
 from apps.custom_email.models import OrganizationEmail
+from apps.organization_setting.constants import ThemeType
+
+
+def get_theme_logo_url(instance, theme_key):
+    host = settings.HOST.rstrip("/")
+    default_logo = "logo_white.png" if theme_key == ThemeType.DARK else "logo_black.png"
+    organization = getattr(instance, "organization", None)
+    if not organization:
+        return f"{host}/static/images/branding/{default_logo}"
+
+    setting = getattr(organization, "organization_settings", None)
+    if not setting:
+        return f"{host}/static/images/branding/{default_logo}"
+
+    theme = setting.themes.filter(theme_key=theme_key).first()
+
+    if not theme or not theme.logo:
+        return f"{host}/static/images/branding/{default_logo}"
+
+    return get_presigned_url(
+        settings.AWS_S3.get("AWS_STORAGE_BUCKET_NAME"),
+        f"uploads/{theme.logo}",
+    )
 
 
 def get_default_organization_emails():
@@ -57,3 +83,20 @@ def create_default_organization_email(organization):
             for email_data in get_default_organization_emails()
         ]
     )
+
+
+def get_custom_email_item(email_type):
+    from apps.custom_email.serializers import OrganizationEmailSerializer
+
+    custom_email = next(
+        (
+            item
+            for item in get_default_organization_emails()
+            if item.get("email_type") == email_type
+        ),
+        None,
+    )
+    if not custom_email:
+        return {}
+
+    return OrganizationEmailSerializer(OrganizationEmail(**custom_email)).data
