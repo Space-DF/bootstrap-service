@@ -119,7 +119,8 @@ class Command(BaseCommand):
         )
         self.stdout.write(self.style.SUCCESS(f"Created organization: {org_name}"))
 
-        create_default_policies(organization)
+        organization_policies = create_default_policies(organization)
+
         create_default_pages(organization)
         create_default_organization_email(organization)
         create_default_organization_setting(organization)
@@ -135,7 +136,7 @@ class Command(BaseCommand):
         owner_role = None
         for role_type, policy_tag in role_mappings:
             role = create_default_organization_role_by_policy_tag(
-                role_type, policy_tag, organization
+                role_type, policy_tag, organization, organization_policies
             )
             if role_type == OrganizationRoleType.OWNER_ROLE:
                 owner_role = role
