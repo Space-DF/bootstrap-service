@@ -12,5 +12,6 @@ class ListCustomEmailView(OrganizationListAPIView):
     queryset = OrganizationEmail.objects.all()
     organization_field = "organization"
     pagination_class = BasePagination
+    filterset_fields = ["email_type"]
     filter_backends = [DjangoFilterBackend, OrderingFilter]
     ordering = ["-created_at"]
