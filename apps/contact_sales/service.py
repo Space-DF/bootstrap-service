@@ -31,6 +31,7 @@ def process_contact_sales_lead(user, org):
 
     # Email first — if SES fails, exception propagates, lead never stored
     _send_contact_sales_email(envelope)
+    _send_subscription_request_received_email(envelope)
     _store_contact_sales_lead(envelope)
 
 
@@ -69,6 +70,27 @@ def _send_contact_sales_email(envelope):
     send_email(
         settings.DEFAULT_FROM_EMAIL,
         [settings.SALES_CONTACT_EMAIL],
+        subject,
+        message,
+    )
+
+
+def _send_subscription_request_received_email(envelope):
+    email_context = get_email_context(
+        {
+            "host": settings.HOST,
+            **envelope,
+        },
+        custom_email={},
+    )
+    message = render_email_format(
+        "email_subscription_request_received.html",
+        email_context,
+    )
+    subject = "We received your subscription request"
+    send_email(
+        settings.DEFAULT_FROM_EMAIL,
+        [envelope["email"]],
         subject,
         message,
     )

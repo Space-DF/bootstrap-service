@@ -1,8 +1,12 @@
 import logging
 from datetime import timedelta
+from urllib.parse import urljoin
 
 from common.apps.billing.constants import FeatureUsageScope
 from common.celery.task_senders import send_task
+from common.utils.email_context import get_email_context, render_email_format
+from common.utils.send_email import send_email
+from django.conf import settings
 from django.core.cache import cache
 from django.db import transaction
 from django.db.models import F
@@ -16,6 +20,8 @@ from apps.billing.models import (
     PlanItem,
     Subscription,
 )
+from apps.organization_roles.constants import OrganizationRoleType
+from apps.organization_roles.models import OrganizationRoleUser
 
 logger = logging.getLogger(__name__)
 
@@ -375,6 +381,136 @@ def _send_subscription_tasks(prefix, payload):
         send_task(f"{service}_{prefix}", payload)
 
 
+def _user_display_name(user):
+    full = f"{user.first_name or ''} {user.last_name or ''}".strip()
+    return full or user.email
+
+
+def _get_organization_owner(organization):
+    return (
+        OrganizationRoleUser.objects.select_related("root_user")
+        .filter(
+            organization_role__organization=organization,
+            organization_role__name__iexact=OrganizationRoleType.OWNER_ROLE,
+        )
+        .order_by("id")
+        .first()
+    )
+
+
+def _get_manage_subscription_url(organization):
+    frontend_url = getattr(settings, "HOST_FRONTEND_ADMIN", "")
+    return urljoin(
+        frontend_url.rstrip("/") + "/",
+        f"organizations/{organization.slug_name}/plans",
+    )
+
+
+def _send_subscription_expired_email(subscription, plan_name, expiry_date):
+    owner_role_user = _get_organization_owner(subscription.organization)
+    if owner_role_user is None:
+        logger.warning(
+            "No owner found for org %s; skipping subscription expired email.",
+            subscription.organization.slug_name,
+        )
+        return
+
+    owner = owner_role_user.root_user
+    email_context = get_email_context(
+        {
+            "host": settings.HOST,
+            "header_image_url": (
+                f"{settings.HOST}/static/images/auth/subscription_expried.png"
+            ),
+            "user_name": _user_display_name(owner),
+            "plan_name": plan_name,
+            "organization_name": subscription.organization.name,
+            "expiry_date": timezone.localtime(expiry_date).strftime("%B %d, %Y"),
+            "manage_subscription_url": _get_manage_subscription_url(
+                subscription.organization
+            ),
+        },
+        custom_email={},
+    )
+    message = render_email_format("email_subscription_expired.html", email_context)
+    send_email(
+        settings.DEFAULT_FROM_EMAIL,
+        [owner.email],
+        "Your SpaceDF subscription has expired",
+        message,
+    )
+
+
+def _send_subscription_renewal_reminder_email(subscription):
+    if not subscription.plan_item or not subscription.plan_item.plan:
+        return
+    if subscription.plan_item.plan.code == PlanCodeType.FREE:
+        return
+
+    owner_role_user = _get_organization_owner(subscription.organization)
+    if owner_role_user is None:
+        logger.warning(
+            "No owner found for org %s; skipping subscription renewal reminder email.",
+            subscription.organization.slug_name,
+        )
+        return
+
+    owner = owner_role_user.root_user
+    email_context = get_email_context(
+        {
+            "host": settings.HOST,
+            "header_image_url": (
+                f"{settings.HOST}/static/images/auth/subscription_expire_soon.png"
+            ),
+            "days_until_expiry": 7,
+            "user_name": _user_display_name(owner),
+            "plan_name": subscription.plan_item.plan.name,
+            "organization_name": subscription.organization.name,
+            "expiry_date": timezone.localtime(subscription.period_end).strftime(
+                "%B %d, %Y"
+            ),
+        },
+        custom_email={},
+    )
+    message = render_email_format(
+        "email_subscription_expiry_reminder.html",
+        email_context,
+    )
+    send_email(
+        settings.DEFAULT_FROM_EMAIL,
+        [owner.email],
+        "Your SpaceDF subscription will expire soon",
+        message,
+    )
+
+
+def send_subscription_renewal_reminder(subscription):
+    cache_key = "billing:subscription_renewal_reminder:" "{}:{}".format(
+        subscription.id, subscription.period_end.isoformat()
+    )
+    if cache.get(cache_key):
+        return False
+
+    _send_subscription_renewal_reminder_email(subscription)
+    cache.set(cache_key, True, timeout=60 * 60 * 24 * 14)
+    return True
+
+
+def _maybe_send_subscription_expired_email(subscription, plan_item, expiry_date):
+    if not plan_item or not plan_item.plan or plan_item.plan.code == PlanCodeType.FREE:
+        return
+    if expiry_date > timezone.now():
+        logger.info(
+            "Subscription %s for org %s downgraded before expiry; skipping expired "
+            "email.",
+            subscription.id,
+            subscription.organization.slug_name,
+        )
+        return
+
+    _send_subscription_expired_email(subscription, plan_item.plan.name, expiry_date)
+
+
 def downgrade_to_free(organization):
     """Downgrade an organization from any paid plan to the Free plan."""
     now = timezone.now()
@@ -395,6 +531,9 @@ def downgrade_to_free(organization):
                 organization.slug_name,
             )
             return
+
+        previous_plan_item = subscription.plan_item
+        previous_period_end = subscription.period_end
 
         Subscription.objects.filter(
             organization=organization,
@@ -423,6 +562,11 @@ def downgrade_to_free(organization):
     }
 
     _send_subscription_tasks("downgrade", payload)
+    _maybe_send_subscription_expired_email(
+        subscription,
+        previous_plan_item,
+        previous_period_end,
+    )
 
     logger.info(
         "Org %s downgraded to Free — enqueued downgrade tasks.",
@@ -461,6 +605,8 @@ def _update_subscription_to_free(subscription):
 
 def downgrade_subscription_to_free(subscription):
     """Downgrade a specific subscription row to Free and enforce Free limits."""
+    previous_plan_item = subscription.plan_item
+    previous_period_end = subscription.period_end
     updated = _update_subscription_to_free(subscription)
     if not updated:
         return False
@@ -472,6 +618,11 @@ def downgrade_subscription_to_free(subscription):
         "downgraded_at": timezone.now().isoformat(),
     }
     _send_subscription_tasks("downgrade", payload)
+    _maybe_send_subscription_expired_email(
+        subscription,
+        previous_plan_item,
+        previous_period_end,
+    )
 
     logger.info(
         "Subscription %s for org %s downgraded to Free — enqueued downgrade tasks.",
@@ -481,11 +632,23 @@ def downgrade_subscription_to_free(subscription):
     return True
 
 
-def renew_subscription(organization):
+def renew_subscription(organization, subscription=None, send_email_notification=False):
     """Enqueue upgrade tasks so services re-activate deactivated resources."""
     payload = {"org_slug": organization.slug_name}
 
     _send_subscription_tasks("upgrade", payload)
+    if (
+        send_email_notification
+        and subscription is not None
+        and subscription.plan_item
+        and subscription.plan_item.plan
+        and subscription.plan_item.plan.code != PlanCodeType.FREE
+    ):
+        _send_subscription_expired_email(
+            subscription,
+            subscription.plan_item.plan.name,
+            subscription.period_end,
+        )
 
     logger.info(
         "Org %s subscription renewed — enqueued upgrade tasks.",
