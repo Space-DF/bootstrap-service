@@ -65,6 +65,7 @@ class PlanItemSerializer(serializers.ModelSerializer):
 
 class PlanSerializer(serializers.ModelSerializer):
     plan_items = PlanItemSerializer(many=True, read_only=True)
+    is_current_plan = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Plan
@@ -74,6 +75,7 @@ class PlanSerializer(serializers.ModelSerializer):
             "code",
             "description",
             "plan_items",
+            "is_current_plan",
             "created_at",
             "updated_at",
         ]
