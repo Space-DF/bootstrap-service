@@ -1,3 +1,5 @@
+from datetime import timezone
+
 from common.pagination.base_pagination import BasePagination
 from django.db.models import CharField, Count, Subquery
 from django.shortcuts import get_object_or_404
@@ -77,6 +79,15 @@ class CheckOrganizationView(views.APIView):
             )
             .first()
         )
+        subscription = (
+            organization.subscriptions.filter(
+                period_start__lte=timezone.now(),
+                period_end__gte=timezone.now(),
+            )
+            .select_related("plan")
+            .order_by("-created_at")
+            .first()
+        )
 
         return Response(
             {
@@ -85,6 +96,14 @@ class CheckOrganizationView(views.APIView):
                 "setting": OrganizationSettingsWithCustomPagesSerializer(setting).data
                 if setting
                 else None,
+                "plan": (
+                    {
+                        "code": subscription.plan.code,
+                        "name": subscription.plan.name,
+                    }
+                    if subscription
+                    else None
+                ),
             },
             status=status.HTTP_200_OK,
         )
