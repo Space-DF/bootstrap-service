@@ -1,6 +1,6 @@
 from common.pagination.base_pagination import BasePagination
 from django.db.models import Min, Prefetch
-from rest_framework import generics, status
+from rest_framework import generics, permissions, status
 from rest_framework.filters import OrderingFilter
 from rest_framework.response import Response
 
@@ -28,6 +28,24 @@ class PlanListView(generics.ListAPIView):
     queryset = (
         Plan.objects.filter(plan_items__is_active=True)
         .annotate(price=Min("plan_items__price"))
+        .prefetch_related(
+            Prefetch(
+                "plan_items",
+                queryset=PlanItem.objects.filter(is_active=True).order_by("price"),
+            ),
+            "plan_features__feature",
+        )
+    )
+
+
+class PlanDetailView(generics.RetrieveAPIView):
+    authentication_classes = []
+    permission_classes = [permissions.AllowAny]
+    serializer_class = PlanWithFeaturesSerializer
+    lookup_field = "code"
+    queryset = (
+        Plan.objects.filter(plan_items__is_active=True)
+        .distinct()
         .prefetch_related(
             Prefetch(
                 "plan_items",

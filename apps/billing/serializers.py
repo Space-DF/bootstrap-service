@@ -54,7 +54,7 @@ class PlanItemSerializer(serializers.ModelSerializer):
 
 class PlanSerializer(serializers.ModelSerializer):
     plan_items = PlanItemSerializer(many=True, read_only=True)
-    is_current_plan = serializers.BooleanField(read_only=True)
+    is_current_plan = serializers.BooleanField(read_only=True, default=True)
 
     class Meta:
         model = Plan
