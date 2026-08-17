@@ -1,6 +1,11 @@
 from django.db import models
 
 
+class PlanCodeType:
+    # Plan code used as the default when provisioning a new organization.
+    FREE = "free"
+
+
 class CurrencyType(models.TextChoices):
     USD = "USD"
     VND = "VND"
@@ -20,3 +25,9 @@ class FeatureValueType(models.TextChoices):
 class UsageType(models.TextChoices):
     RESOURCE = "resource"
     PERIOD = "period"
+
+
+BILLING_CYCLE_DAYS = {
+    BillingCycle.MONTHLY: 30,
+    BillingCycle.YEARLY: 365,
+}
