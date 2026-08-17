@@ -4,6 +4,7 @@ from common.celery.task_senders import send_task
 from django.conf import settings
 from rest_framework import serializers
 
+from apps.billing.constants import PlanCodeType
 from apps.organization.models import Organization
 
 
@@ -42,6 +43,16 @@ class OrganizationSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
+        subscription = (
+            instance.subscriptions.select_related("plan_item__plan")
+            .order_by("-created_at")
+            .first()
+        )
+        data["plan"] = (
+            subscription.plan_item.plan.code
+            if subscription and subscription.plan_item and subscription.plan_item.plan
+            else PlanCodeType.FREE
+        )
         if instance.logo and instance.logo not in ["", None]:
             data["url_logo"] = get_presigned_url(
                 settings.AWS_S3.get("AWS_STORAGE_BUCKET_NAME"),

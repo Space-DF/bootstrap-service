@@ -1,5 +1,3 @@
-from datetime import timezone
-
 from common.pagination.base_pagination import BasePagination
 from django.db.models import CharField, Count, Subquery
 from django.shortcuts import get_object_or_404
@@ -7,6 +5,7 @@ from rest_framework import status, views
 from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.response import Response
 
+from apps.billing.constants import PlanCodeType
 from apps.organization.models import Organization
 from apps.organization.serializers import OrganizationSerializer
 from apps.organization.services import get_owner_name_query_set
@@ -80,18 +79,14 @@ class CheckOrganizationView(views.APIView):
             .first()
         )
         subscription = (
-            organization.subscriptions.filter(
-                period_start__lte=timezone.now(),
-                period_end__gte=timezone.now(),
-            )
-            .select_related("plan_item__plan")
+            organization.subscriptions.select_related("plan_item__plan")
             .order_by("-created_at")
             .first()
         )
-        plan = (
-            subscription.plan_item.plan
-            if subscription and subscription.plan_item
-            else None
+        plan_code = (
+            subscription.plan_item.plan.code
+            if subscription and subscription.plan_item and subscription.plan_item.plan
+            else PlanCodeType.FREE
         )
 
         return Response(
@@ -101,14 +96,7 @@ class CheckOrganizationView(views.APIView):
                 "setting": OrganizationSettingsWithCustomPagesSerializer(setting).data
                 if setting
                 else None,
-                "plan": (
-                    {
-                        "code": plan.code,
-                        "name": plan.name,
-                    }
-                    if plan
-                    else None
-                ),
+                "plan": plan_code,
             },
             status=status.HTTP_200_OK,
         )
