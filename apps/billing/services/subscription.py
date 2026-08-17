@@ -371,7 +371,7 @@ def _get_free_plan_limits():
 
 
 def _send_subscription_tasks(prefix, payload):
-    for service in ("device", "space", "dashboard"):
+    for service in ("device", "space", "dashboard", "console", "automation"):
         send_task(f"{service}_{prefix}", payload)
 
 
@@ -416,7 +416,11 @@ def downgrade_to_free(organization):
         )
 
     limits = _get_free_plan_limits()
-    payload = {"org_slug": organization.slug_name, "limits": limits}
+    payload = {
+        "org_slug": organization.slug_name,
+        "limits": limits,
+        "downgraded_at": now.isoformat(),
+    }
 
     _send_subscription_tasks("downgrade", payload)
 
@@ -462,7 +466,11 @@ def downgrade_subscription_to_free(subscription):
         return False
 
     limits = _get_free_plan_limits()
-    payload = {"org_slug": subscription.organization.slug_name, "limits": limits}
+    payload = {
+        "org_slug": subscription.organization.slug_name,
+        "limits": limits,
+        "downgraded_at": timezone.now().isoformat(),
+    }
     _send_subscription_tasks("downgrade", payload)
 
     logger.info(

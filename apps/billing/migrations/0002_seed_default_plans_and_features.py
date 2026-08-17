@@ -62,6 +62,11 @@ FEATURES = [
         "value_type": "boolean",
     },
     {
+        "code": "automation.max_count",
+        "name": "Automation",
+        "value_type": "limit",
+    },
+    {
         "code": "data_retention.days",
         "name": "Data retention (days)",
         "value_type": "quota",
@@ -113,6 +118,7 @@ PRO_FEATURES = {
     "support.email_community": {"enabled": True, "limit_value": None},
     "support.priority": {"enabled": True, "limit_value": None},
     "support.fully_maintenance": {"enabled": True, "limit_value": None},
+    "automation.max_count": {"enabled": True, "limit_value": 5},
 }
 
 PLAN_FEATURE_VALUES = {
