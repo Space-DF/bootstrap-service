@@ -3,17 +3,6 @@ from rest_framework import serializers
 from apps.billing.models import Feature, Plan, PlanFeature, PlanItem
 
 
-class ChargebeeWebhookInputSerializer(serializers.Serializer):
-    id = serializers.CharField(
-        max_length=64,
-        help_text="Chargebee event ID.",
-    )
-    event_type = serializers.CharField(max_length=128)
-    occurred_at = serializers.IntegerField()
-    content = serializers.DictField()
-    source = serializers.CharField(max_length=64, required=False)
-
-
 class FeatureSerializer(serializers.ModelSerializer):
     class Meta:
         model = Feature
@@ -101,4 +90,25 @@ class PlanWithFeaturesSerializer(PlanSerializer):
         return data
 
     class Meta(PlanSerializer.Meta):
-        fields = list(PlanSerializer.Meta.fields)
+        fields = list(PlanSerializer.Meta.fields) + ["plan_features"]
+
+
+class ReserveQuotaSerializer(serializers.Serializer):
+    organization = serializers.CharField()
+    feature = serializers.ListField(
+        child=serializers.CharField(),
+        allow_empty=False,
+    )
+    amount = serializers.IntegerField(
+        default=1,
+        min_value=0,
+        required=False,
+    )
+
+
+class ViewQuotaSerializer(serializers.Serializer):
+    organization = serializers.CharField()
+    feature = serializers.ListField(
+        child=serializers.CharField(),
+        allow_empty=False,
+    )
