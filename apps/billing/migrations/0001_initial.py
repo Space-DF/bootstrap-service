@@ -215,7 +215,13 @@ class Migration(migrations.Migration):
                         max_length=16,
                     ),
                 ),
-                ("used_value", models.BigIntegerField(default=0)),
+                (
+                    "used_value",
+                    models.BigIntegerField(
+                        default=0,
+                        validators=[django.core.validators.MinValueValidator(0)],
+                    ),
+                ),
                 ("billing_period", models.DateField()),
                 (
                     "feature",
