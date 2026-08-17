@@ -1,6 +1,8 @@
 import logging
 from datetime import timedelta
 
+from common.celery.task_senders import send_task
+from django.core.cache import cache
 from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
@@ -224,3 +226,117 @@ def get_quotas(organization, feature_codes):
         feature_code: get_quota(organization, feature_code)
         for feature_code in feature_codes
     }
+
+
+def _get_free_plan_limits():
+    """Cached Free plan limits dict — queried once per hour."""
+    cache_key = "billing:free_plan_limits"
+    limits = cache.get(cache_key)
+    if limits is not None:
+        return limits
+
+    from apps.billing.models import Plan, PlanFeature
+
+    free_plan = Plan.objects.filter(code=PlanCodeType.FREE).first()
+    limits = {}
+    if free_plan:
+        for pf in (
+            PlanFeature.objects.filter(plan=free_plan)
+            .select_related("feature")
+            .iterator()
+        ):
+            code = pf.feature.code
+            if pf.limit_value is not None:
+                limits[code] = pf.limit_value + (1 if code == "space.max_count" else 0)
+
+    cache.set(cache_key, limits, 3600)
+    return limits
+
+
+def _send_subscription_tasks(prefix, payload):
+    for service in ("device", "space", "dashboard"):
+        send_task(f"{service}_{prefix}", payload)
+
+
+def downgrade_to_free(organization):
+    """Downgrade an organization from any paid plan to the Free plan."""
+    now = timezone.now()
+
+    # 1. End all active non-Free subscriptions
+    ended = (
+        Subscription.objects.filter(
+            organization=organization,
+            period_end__gt=now,
+        )
+        .exclude(plan_item__plan__code=PlanCodeType.FREE)
+        .update(period_end=now)
+    )
+
+    if not ended:
+        logger.info(
+            "No active paid subscription to downgrade for org %s — "
+            "may already be on Free plan.",
+            organization.slug_name,
+        )
+
+    # 2. Check if org already has an active Free subscription
+    already_free = Subscription.objects.filter(
+        organization=organization,
+        period_end__gt=now,
+        plan_item__plan__code=PlanCodeType.FREE,
+    ).exists()
+    if already_free:
+        logger.info(
+            "Org %s already has an active Free subscription, skipping creation.",
+            organization.slug_name,
+        )
+    else:
+        free_item = (
+            PlanItem.objects.select_related("plan")
+            .filter(
+                plan__code=PlanCodeType.FREE,
+                billing_cycle=BillingCycle.MONTHLY,
+                is_active=True,
+            )
+            .first()
+        )
+        if free_item is None:
+            logger.error(
+                "Free plan item not found for org %s — cannot create Free subscription.",
+                organization.slug_name,
+            )
+        else:
+            duration_days = BILLING_CYCLE_DAYS.get(free_item.billing_cycle, 30)
+            Subscription.objects.create(
+                organization=organization,
+                plan_item=free_item,
+                period_start=now,
+                period_end=now + timedelta(days=duration_days),
+            )
+            logger.info(
+                "Created Free subscription for org %s (was on paid plan).",
+                organization.slug_name,
+            )
+
+    # 3. Enqueue downgrade tasks to each service
+    limits = _get_free_plan_limits()
+    payload = {"org_slug": organization.slug_name, "limits": limits}
+
+    _send_subscription_tasks("downgrade", payload)
+
+    logger.info(
+        "Org %s downgraded to Free — enqueued downgrade tasks.",
+        organization.slug_name,
+    )
+
+
+def renew_subscription(organization):
+    """Enqueue upgrade tasks so services re-activate deactivated resources."""
+    payload = {"org_slug": organization.slug_name}
+
+    _send_subscription_tasks("upgrade", payload)
+
+    logger.info(
+        "Org %s subscription renewed — enqueued upgrade tasks.",
+        organization.slug_name,
+    )
