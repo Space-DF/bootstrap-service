@@ -65,6 +65,7 @@ INSTALLED_APPS = [
     "apps.custom_email",
     "apps.organization_setting",
     "apps.billing",
+    "apps.contact_sales",
     "apps.organization_roles",
     "apps.authentication",
 ]
@@ -240,6 +241,9 @@ DATABASES = {
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "")
 EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+
+# Inbox that receives contact-sales requests for manual follow-up.
+SALES_CONTACT_EMAIL = os.getenv("SALES_CONTACT_EMAIL", "sales@spacedf.com")
 
 CACHES = {
     "default": {
