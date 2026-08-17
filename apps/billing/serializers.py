@@ -1,3 +1,4 @@
+from common.apps.billing.constants import FeatureUsageScope
 from rest_framework import serializers
 
 from apps.billing.models import Feature, Plan, PlanFeature, PlanItem
@@ -99,6 +100,11 @@ class ReserveQuotaSerializer(serializers.Serializer):
         child=serializers.CharField(),
         allow_empty=False,
     )
+    scope_type = serializers.CharField(
+        required=False,
+        default=FeatureUsageScope.ORGANIZATION,
+    )
+    scope_id = serializers.UUIDField(required=False, allow_null=True)
     amount = serializers.IntegerField(
         default=1,
         min_value=0,
@@ -112,3 +118,8 @@ class ViewQuotaSerializer(serializers.Serializer):
         child=serializers.CharField(),
         allow_empty=False,
     )
+    scope_type = serializers.CharField(
+        required=False,
+        default=FeatureUsageScope.ORGANIZATION,
+    )
+    scope_id = serializers.UUIDField(required=False, allow_null=True)

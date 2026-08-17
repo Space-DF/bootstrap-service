@@ -62,7 +62,13 @@ class ReserveQuotaView(generics.GenericAPIView):
     Called by other services before creating a billable resource.
 
     Request body::
-        {"organization": "<slug_name>", "feature": ["<code>"], "amount": 1}
+        {
+            "organization": "<slug_name>",
+            "feature": ["<code>"],
+            "amount": 1,
+            "scope_type": "user",
+            "scope_id": "<uuid>"
+        }
 
     Returns 200 if reserved, 403 if quota exceeded.
     """
@@ -76,6 +82,8 @@ class ReserveQuotaView(generics.GenericAPIView):
         slug_name = serializer.validated_data["organization"]
         feature_codes = serializer.validated_data["feature"]
         amount = serializer.validated_data["amount"]
+        scope_type = serializer.validated_data.get("scope_type")
+        scope_id = serializer.validated_data.get("scope_id")
 
         from apps.organization.models import Organization
 
@@ -87,7 +95,13 @@ class ReserveQuotaView(generics.GenericAPIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        reserved, error = reserve_quotas(organization, feature_codes, amount)
+        reserved, error = reserve_quotas(
+            organization,
+            feature_codes,
+            amount,
+            scope_type,
+            scope_id,
+        )
         if reserved:
             return Response({"status": "reserved"})
         return Response({"detail": error}, status=status.HTTP_403_FORBIDDEN)
@@ -100,7 +114,13 @@ class ReleaseQuotaView(generics.GenericAPIView):
     Always returns 200.
 
     Request body::
-        {"organization": "<slug_name>", "feature": ["<code>"], "amount": 1}
+        {
+            "organization": "<slug_name>",
+            "feature": ["<code>"],
+            "amount": 1,
+            "scope_type": "user",
+            "scope_id": "<uuid>"
+        }
     """
 
     swagger_schema = None
@@ -112,6 +132,8 @@ class ReleaseQuotaView(generics.GenericAPIView):
         slug_name = serializer.validated_data["organization"]
         feature_codes = serializer.validated_data["feature"]
         amount = serializer.validated_data["amount"]
+        scope_type = serializer.validated_data.get("scope_type")
+        scope_id = serializer.validated_data.get("scope_id")
 
         from apps.organization.models import Organization
 
@@ -123,7 +145,7 @@ class ReleaseQuotaView(generics.GenericAPIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        release_quotas(organization, feature_codes, amount)
+        release_quotas(organization, feature_codes, amount, scope_type, scope_id)
         return Response({"status": "released"})
 
 
@@ -131,7 +153,12 @@ class QuotaView(generics.GenericAPIView):
     """Internal endpoint — views quota for a feature.
 
     Request body::
-        {"organization": "<slug_name>", "feature": ["<code>"]}
+        {
+            "organization": "<slug_name>",
+            "feature": ["<code>"],
+            "scope_type": "user",
+            "scope_id": "<uuid>"
+        }
     """
 
     serializer_class = ViewQuotaSerializer
@@ -141,6 +168,8 @@ class QuotaView(generics.GenericAPIView):
         serializer.is_valid(raise_exception=True)
         slug_name = serializer.validated_data["organization"]
         feature_codes = serializer.validated_data["feature"]
+        scope_type = serializer.validated_data.get("scope_type")
+        scope_id = serializer.validated_data.get("scope_id")
 
         from apps.organization.models import Organization
 
@@ -152,7 +181,7 @@ class QuotaView(generics.GenericAPIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        quotas = get_quotas(organization, feature_codes)
+        quotas = get_quotas(organization, feature_codes, scope_type, scope_id)
         if len(feature_codes) == 1:
             return Response({"quota": quotas[feature_codes[0]]})
         return Response({"quotas": quotas})

@@ -1,6 +1,7 @@
 import logging
 from datetime import timedelta
 
+from common.apps.billing.constants import FeatureUsageScope
 from common.celery.task_senders import send_task
 from django.core.cache import cache
 from django.db import transaction
@@ -93,11 +94,56 @@ def _get_quota_meta(organization, feature_code):
     return subscription.id, feature.id, plan_feature.limit_value, True
 
 
-def reserve_quota(organization, feature_code, amount=1):
+def _current_period():
+    period_start = timezone.now().date().replace(day=1)
+    if period_start.month == 12:
+        period_end = period_start.replace(
+            year=period_start.year + 1,
+            month=1,
+        )
+    else:
+        period_end = period_start.replace(month=period_start.month + 1)
+    return period_start, period_end
+
+
+def _resolve_scope(organization, scope_type=None, scope_id=None):
+    scope_type = scope_type or FeatureUsageScope.ORGANIZATION
+    if scope_type == FeatureUsageScope.ORGANIZATION:
+        return scope_type, organization.id
+    if scope_id is None:
+        raise ValueError(f"scope_id is required for scope_type '{scope_type}'.")
+    return scope_type, scope_id
+
+
+def _usage_lookup(
+    subscription_id,
+    feature_id,
+    period_start,
+    period_end,
+    scope_type,
+    scope_id,
+):
+    return {
+        "subscription_id": subscription_id,
+        "feature_id": feature_id,
+        "scope_type": scope_type,
+        "scope_id": scope_id,
+        "period_start": period_start,
+        "period_end": period_end,
+    }
+
+
+def reserve_quota(
+    organization,
+    feature_code,
+    amount=1,
+    scope_type=None,
+    scope_id=None,
+):
     """Atomically reserve ``amount`` of a feature for the org's current period.
     Returns ``(reserved: bool, error: str | None)``. Limited features increment
-    ``FeatureUsage.used_value`` atomically. Unlimited features are allowed
-    without tracking usage.
+    ``FeatureUsage.used_value`` atomically for the resolved scope.
+    Unlimited features are allowed without tracking usage.
     If the org's current plan does not include the feature, returns
     ``(False, error)``.
     """
@@ -113,11 +159,17 @@ def reserve_quota(organization, feature_code, amount=1):
             return True, None
 
         with transaction.atomic():
-            period = timezone.now().date().replace(day=1)
+            period_start, period_end = _current_period()
+            scope_type, scope_id = _resolve_scope(organization, scope_type, scope_id)
             usage, _ = FeatureUsage.objects.select_for_update().get_or_create(
-                subscription_id=subscription_id,
-                feature_id=feature_id,
-                billing_period=period,
+                **_usage_lookup(
+                    subscription_id,
+                    feature_id,
+                    period_start,
+                    period_end,
+                    scope_type,
+                    scope_id,
+                ),
                 defaults={
                     "usage_type": "resource",
                     "used_value": 0,
@@ -143,14 +195,32 @@ def reserve_quota(organization, feature_code, amount=1):
         return False, "Unable to reserve quota."
 
 
-def reserve_quotas(organization, feature_codes, amount=1):
+def reserve_quotas(
+    organization,
+    feature_codes,
+    amount=1,
+    scope_type=None,
+    scope_id=None,
+):
     reserved_features = []
 
     for feature_code in feature_codes:
-        reserved, error = reserve_quota(organization, feature_code, amount)
+        reserved, error = reserve_quota(
+            organization,
+            feature_code,
+            amount,
+            scope_type,
+            scope_id,
+        )
         if not reserved:
             for reserved_feature in reserved_features:
-                release_quota(organization, reserved_feature, amount)
+                release_quota(
+                    organization,
+                    reserved_feature,
+                    amount,
+                    scope_type,
+                    scope_id,
+                )
             return False, error
 
         if amount > 0:
@@ -159,7 +229,13 @@ def reserve_quotas(organization, feature_codes, amount=1):
     return True, None
 
 
-def release_quota(organization, feature_code, amount=1):
+def release_quota(
+    organization,
+    feature_code,
+    amount=1,
+    scope_type=None,
+    scope_id=None,
+):
     """Release ``amount`` back to the org's quota (e.g. when create failed)."""
     slug = organization.slug_name
     try:
@@ -172,13 +248,19 @@ def release_quota(organization, feature_code, amount=1):
             return
 
         with transaction.atomic():
-            period = timezone.now().date().replace(day=1)
+            period_start, period_end = _current_period()
+            scope_type, scope_id = _resolve_scope(organization, scope_type, scope_id)
             usage = (
                 FeatureUsage.objects.select_for_update()
                 .filter(
-                    subscription_id=subscription_id,
-                    feature_id=feature_id,
-                    billing_period=period,
+                    **_usage_lookup(
+                        subscription_id,
+                        feature_id,
+                        period_start,
+                        period_end,
+                        scope_type,
+                        scope_id,
+                    )
                 )
                 .first()
             )
@@ -192,12 +274,18 @@ def release_quota(organization, feature_code, amount=1):
         logger.error("release_quota failed for %s/%s: %s", slug, feature_code, e)
 
 
-def release_quotas(organization, feature_codes, amount=1):
+def release_quotas(
+    organization,
+    feature_codes,
+    amount=1,
+    scope_type=None,
+    scope_id=None,
+):
     for feature_code in feature_codes:
-        release_quota(organization, feature_code, amount)
+        release_quota(organization, feature_code, amount, scope_type, scope_id)
 
 
-def get_quota(organization, feature_code):
+def get_quota(organization, feature_code, scope_type=None, scope_id=None):
     """Get quota for a feature."""
     slug = organization.slug_name
     try:
@@ -207,11 +295,17 @@ def get_quota(organization, feature_code):
         if subscription_id is None or feature_id is None or not is_allowed:
             return 0
 
-        period = timezone.now().date().replace(day=1)
+        period_start, period_end = _current_period()
+        scope_type, scope_id = _resolve_scope(organization, scope_type, scope_id)
         usage = FeatureUsage.objects.filter(
-            subscription_id=subscription_id,
-            feature_id=feature_id,
-            billing_period=period,
+            **_usage_lookup(
+                subscription_id,
+                feature_id,
+                period_start,
+                period_end,
+                scope_type,
+                scope_id,
+            )
         ).first()
         if usage is None:
             return 0
@@ -221,9 +315,9 @@ def get_quota(organization, feature_code):
         return 0
 
 
-def get_quotas(organization, feature_codes):
+def get_quotas(organization, feature_codes, scope_type=None, scope_id=None):
     return {
-        feature_code: get_quota(organization, feature_code)
+        feature_code: get_quota(organization, feature_code, scope_type, scope_id)
         for feature_code in feature_codes
     }
 
