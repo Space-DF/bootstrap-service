@@ -7,103 +7,248 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     initial = True
 
     dependencies = [
-        ('organization', '0004_alter_organization_template'),
+        ("organization", "0004_alter_organization_template"),
     ]
 
     operations = [
         migrations.CreateModel(
-            name='Feature',
+            name="Feature",
             fields=[
-                ('id', models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False, unique=True)),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
-                ('code', models.CharField(max_length=128, unique=True)),
-                ('name', models.CharField(max_length=256)),
-                ('description', models.TextField(blank=True)),
-                ('value_type', models.CharField(choices=[('boolean', 'Boolean'), ('limit', 'Limit'), ('quota', 'Quota')], max_length=16)),
+                (
+                    "id",
+                    models.UUIDField(
+                        default=uuid.uuid4,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
+                        unique=True,
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                ("code", models.CharField(max_length=128, unique=True)),
+                ("name", models.CharField(max_length=256)),
+                ("description", models.TextField(blank=True)),
+                (
+                    "value_type",
+                    models.CharField(
+                        choices=[
+                            ("boolean", "Boolean"),
+                            ("limit", "Limit"),
+                            ("quota", "Quota"),
+                        ],
+                        max_length=16,
+                    ),
+                ),
             ],
             options={
-                'db_table': 'features',
+                "db_table": "features",
             },
         ),
         migrations.CreateModel(
-            name='Plan',
+            name="Plan",
             fields=[
-                ('id', models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False, unique=True)),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
-                ('name', models.CharField(max_length=256)),
-                ('code', models.CharField(max_length=64, unique=True)),
-                ('price', models.DecimalField(decimal_places=2, default=0, max_digits=10, validators=[django.core.validators.MinValueValidator(0)])),
-                ('description', models.TextField(blank=True)),
-                ('icon', models.CharField(blank=True, default='', max_length=256)),
-                ('support', models.TextField(blank=True)),
-                ('currency', models.CharField(choices=[('USD', 'Usd'), ('VND', 'Vnd')], default='USD', max_length=8)),
-                ('discount', models.IntegerField(default=0, validators=[django.core.validators.MinValueValidator(0), django.core.validators.MaxValueValidator(100)])),
-                ('billing_cycle', models.CharField(choices=[('monthly', 'Monthly'), ('yearly', 'Yearly')], default='monthly', max_length=16)),
-                ('is_active', models.BooleanField(default=True)),
+                (
+                    "id",
+                    models.UUIDField(
+                        default=uuid.uuid4,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
+                        unique=True,
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                ("name", models.CharField(max_length=256)),
+                ("code", models.CharField(max_length=64, unique=True)),
+                (
+                    "price",
+                    models.DecimalField(
+                        decimal_places=2,
+                        default=0,
+                        max_digits=10,
+                        validators=[django.core.validators.MinValueValidator(0)],
+                    ),
+                ),
+                ("description", models.TextField(blank=True)),
+                ("icon", models.CharField(blank=True, default="", max_length=256)),
+                ("support", models.TextField(blank=True)),
+                (
+                    "currency",
+                    models.CharField(
+                        choices=[("USD", "Usd"), ("VND", "Vnd")],
+                        default="USD",
+                        max_length=8,
+                    ),
+                ),
+                (
+                    "discount",
+                    models.IntegerField(
+                        default=0,
+                        validators=[
+                            django.core.validators.MinValueValidator(0),
+                            django.core.validators.MaxValueValidator(100),
+                        ],
+                    ),
+                ),
+                (
+                    "billing_cycle",
+                    models.CharField(
+                        choices=[("monthly", "Monthly"), ("yearly", "Yearly")],
+                        default="monthly",
+                        max_length=16,
+                    ),
+                ),
+                ("is_active", models.BooleanField(default=True)),
             ],
             options={
-                'db_table': 'plans',
+                "db_table": "plans",
             },
         ),
         migrations.CreateModel(
-            name='PlanFeature',
+            name="PlanFeature",
             fields=[
-                ('id', models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False, unique=True)),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
-                ('enabled', models.BooleanField(default=True)),
-                ('limit_value', models.IntegerField(blank=True, null=True, validators=[django.core.validators.MinValueValidator(0)])),
-                ('metadata', models.JSONField(blank=True, default=dict)),
-                ('feature', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='plan_features', to='billing.feature')),
-                ('plan', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='plan_features', to='billing.plan')),
+                (
+                    "id",
+                    models.UUIDField(
+                        default=uuid.uuid4,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
+                        unique=True,
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                ("enabled", models.BooleanField(default=True)),
+                (
+                    "limit_value",
+                    models.IntegerField(
+                        blank=True,
+                        null=True,
+                        validators=[django.core.validators.MinValueValidator(0)],
+                    ),
+                ),
+                ("metadata", models.JSONField(blank=True, default=dict)),
+                (
+                    "feature",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="plan_features",
+                        to="billing.feature",
+                    ),
+                ),
+                (
+                    "plan",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="plan_features",
+                        to="billing.plan",
+                    ),
+                ),
             ],
             options={
-                'db_table': 'plan_features',
+                "db_table": "plan_features",
             },
         ),
         migrations.CreateModel(
-            name='Subscription',
+            name="Subscription",
             fields=[
-                ('id', models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False, unique=True)),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
-                ('period_start', models.DateTimeField()),
-                ('period_end', models.DateTimeField()),
-                ('organization', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='subscriptions', to='organization.organization')),
-                ('plan', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='subscriptions', to='billing.plan')),
+                (
+                    "id",
+                    models.UUIDField(
+                        default=uuid.uuid4,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
+                        unique=True,
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                ("period_start", models.DateTimeField()),
+                ("period_end", models.DateTimeField()),
+                (
+                    "organization",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="subscriptions",
+                        to="organization.organization",
+                    ),
+                ),
+                (
+                    "plan",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="subscriptions",
+                        to="billing.plan",
+                    ),
+                ),
             ],
             options={
-                'db_table': 'subscriptions',
+                "db_table": "subscriptions",
             },
         ),
         migrations.CreateModel(
-            name='FeatureUsage',
+            name="FeatureUsage",
             fields=[
-                ('id', models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False, unique=True)),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
-                ('usage_type', models.CharField(choices=[('resource', 'Resource'), ('period', 'Period')], max_length=16)),
-                ('used_value', models.BigIntegerField(default=0)),
-                ('billing_period', models.DateField()),
-                ('feature', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='feature_usages', to='billing.feature')),
-                ('subscription', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='feature_usages', to='billing.subscription')),
+                (
+                    "id",
+                    models.UUIDField(
+                        default=uuid.uuid4,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
+                        unique=True,
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                (
+                    "usage_type",
+                    models.CharField(
+                        choices=[("resource", "Resource"), ("period", "Period")],
+                        max_length=16,
+                    ),
+                ),
+                ("used_value", models.BigIntegerField(default=0)),
+                ("billing_period", models.DateField()),
+                (
+                    "feature",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="feature_usages",
+                        to="billing.feature",
+                    ),
+                ),
+                (
+                    "subscription",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="feature_usages",
+                        to="billing.subscription",
+                    ),
+                ),
             ],
             options={
-                'db_table': 'feature_usages',
+                "db_table": "feature_usages",
             },
         ),
         migrations.AddConstraint(
-            model_name='planfeature',
-            constraint=models.UniqueConstraint(fields=('plan', 'feature'), name='unique_plan_feature'),
+            model_name="planfeature",
+            constraint=models.UniqueConstraint(
+                fields=("plan", "feature"), name="unique_plan_feature"
+            ),
         ),
         migrations.AddConstraint(
-            model_name='subscription',
-            constraint=models.CheckConstraint(check=models.Q(('period_end__gt', models.F('period_start'))), name='subscription_period_end_after_period_start'),
+            model_name="subscription",
+            constraint=models.CheckConstraint(
+                check=models.Q(("period_end__gt", models.F("period_start"))),
+                name="subscription_period_end_after_period_start",
+            ),
         ),
     ]
