@@ -1,8 +1,10 @@
 from django.urls import path
 
 from apps.organization_monitoring.views import (
-    OrganizationMonitoringDetailView,
-    OrganizationMonitoringListCreateView,
+    MonitoringDetailView,
+    MonitoringListCreateView,
+    UserMonitoringDetailView,
+    UserMonitoringListView,
 )
 
 app_name = "organization_monitoring"
@@ -10,12 +12,22 @@ app_name = "organization_monitoring"
 urlpatterns = [
     path(
         "organizations/monitoring",
-        OrganizationMonitoringListCreateView.as_view(),
+        UserMonitoringListView.as_view(),
         name="organization-monitoring-list",
     ),
     path(
         "organizations/monitoring/<uuid:pk>",
-        OrganizationMonitoringDetailView.as_view(),
+        UserMonitoringDetailView.as_view(),
         name="organization-monitoring-detail",
+    ),
+    path(
+        "console/organizations/monitoring",
+        MonitoringListCreateView.as_view(),
+        name="console-organization-monitoring-list",
+    ),
+    path(
+        "console/organizations/monitoring/<uuid:pk>",
+        MonitoringDetailView.as_view(),
+        name="console-organization-monitoring-detail",
     ),
 ]
