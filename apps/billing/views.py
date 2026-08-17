@@ -1,18 +1,26 @@
 from common.pagination.base_pagination import BasePagination
-from django.db.models import BooleanField, Case, Min, Prefetch, Value, When
-from rest_framework import generics
+from django.db.models import Min, Prefetch
+from rest_framework import generics, status
 from rest_framework.filters import OrderingFilter
+from rest_framework.response import Response
 
-from apps.billing.constants import PlanCodeType
 from apps.billing.models import Plan, PlanItem
-from apps.billing.serializers import PlanSerializer
-from apps.organization.models import Organization
+from apps.billing.serializers import (
+    PlanWithFeaturesSerializer,
+    ReserveQuotaSerializer,
+    ViewQuotaSerializer,
+)
+from apps.billing.services.subscription import (
+    get_quotas,
+    release_quotas,
+    reserve_quotas,
+)
 
 
 class PlanListView(generics.ListAPIView):
     """List active subscription plans with their feature definitions."""
 
-    serializer_class = PlanSerializer
+    serializer_class = PlanWithFeaturesSerializer
     pagination_class = BasePagination
     filter_backends = [OrderingFilter]
     ordering = ["price"]
@@ -29,23 +37,104 @@ class PlanListView(generics.ListAPIView):
         )
     )
 
-    def get_queryset(self):
-        queryset = super().get_queryset()
-        organization_slug = self.request.headers.get("X-Organization")
-        if not organization_slug:
-            return queryset
 
-        current_plan_code = (
-            Organization.objects.filter(slug_name=organization_slug)
-            .values_list("subscriptions__plan_item__plan__code", flat=True)
-            .order_by("-subscriptions__created_at")
-            .first()
-            or PlanCodeType.FREE
-        )
-        return queryset.annotate(
-            is_current_plan=Case(
-                When(code=current_plan_code, then=Value(True)),
-                default=Value(False),
-                output_field=BooleanField(),
+class ReserveQuotaView(generics.GenericAPIView):
+    """Internal endpoint — reserves quota for a feature.
+
+    Called by other services before creating a billable resource.
+
+    Request body::
+        {"organization": "<slug_name>", "feature": ["<code>"], "amount": 1}
+
+    Returns 200 if reserved, 403 if quota exceeded.
+    """
+
+    swagger_schema = None
+    serializer_class = ReserveQuotaSerializer
+
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        slug_name = serializer.validated_data["organization"]
+        feature_codes = serializer.validated_data["feature"]
+        amount = serializer.validated_data["amount"]
+
+        from apps.organization.models import Organization
+
+        try:
+            organization = Organization.objects.get(slug_name=slug_name)
+        except Organization.DoesNotExist:
+            return Response(
+                {"detail": f"Organization '{slug_name}' not found."},
+                status=status.HTTP_404_NOT_FOUND,
             )
-        )
+
+        reserved, error = reserve_quotas(organization, feature_codes, amount)
+        if reserved:
+            return Response({"status": "reserved"})
+        return Response({"detail": error}, status=status.HTTP_403_FORBIDDEN)
+
+
+class ReleaseQuotaView(generics.GenericAPIView):
+    """Internal endpoint — releases previously reserve quota.
+
+    Called when resource creation failed after a successful reserve.
+    Always returns 200.
+
+    Request body::
+        {"organization": "<slug_name>", "feature": ["<code>"], "amount": 1}
+    """
+
+    swagger_schema = None
+    serializer_class = ReserveQuotaSerializer
+
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        slug_name = serializer.validated_data["organization"]
+        feature_codes = serializer.validated_data["feature"]
+        amount = serializer.validated_data["amount"]
+
+        from apps.organization.models import Organization
+
+        try:
+            organization = Organization.objects.get(slug_name=slug_name)
+        except Organization.DoesNotExist:
+            return Response(
+                {"detail": f"Organization '{slug_name}' not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        release_quotas(organization, feature_codes, amount)
+        return Response({"status": "released"})
+
+
+class QuotaView(generics.GenericAPIView):
+    """Internal endpoint — views quota for a feature.
+
+    Request body::
+        {"organization": "<slug_name>", "feature": ["<code>"]}
+    """
+
+    serializer_class = ViewQuotaSerializer
+
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        slug_name = serializer.validated_data["organization"]
+        feature_codes = serializer.validated_data["feature"]
+
+        from apps.organization.models import Organization
+
+        try:
+            organization = Organization.objects.get(slug_name=slug_name)
+        except Organization.DoesNotExist:
+            return Response(
+                {"detail": f"Organization '{slug_name}' not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        quotas = get_quotas(organization, feature_codes)
+        if len(feature_codes) == 1:
+            return Response({"quota": quotas[feature_codes[0]]})
+        return Response({"quotas": quotas})

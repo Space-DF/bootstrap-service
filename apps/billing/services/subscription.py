@@ -1,10 +1,18 @@
 import logging
 from datetime import timedelta
 
+from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 
 from apps.billing.constants import BILLING_CYCLE_DAYS, BillingCycle, PlanCodeType
-from apps.billing.models import PlanItem, Subscription
+from apps.billing.models import (
+    Feature,
+    FeatureUsage,
+    PlanFeature,
+    PlanItem,
+    Subscription,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -53,3 +61,166 @@ def create_default_subscription(organization, owner=None):
     )
 
     return subscription
+
+
+def _get_quota_meta(organization, feature_code):
+    """Resolve quota metadata for an org+feature.
+    Returns (subscription_id, feature_id, limit_value, is_allowed).
+    """
+    subscription = (
+        Subscription.objects.select_related("plan_item__plan")
+        .filter(organization=organization)
+        .order_by("-created_at")
+        .first()
+    )
+    if subscription is None or subscription.plan_item_id is None:
+        return None, None, None, False
+
+    feature = Feature.objects.filter(code=feature_code).first()
+    if feature is None:
+        return None, None, None, False
+
+    plan_feature = PlanFeature.objects.filter(
+        plan=subscription.plan_item.plan,
+        feature=feature,
+        enabled=True,
+    ).first()
+    if plan_feature is None:
+        return subscription.id, feature.id, None, False
+
+    return subscription.id, feature.id, plan_feature.limit_value, True
+
+
+def reserve_quota(organization, feature_code, amount=1):
+    """Atomically reserve ``amount`` of a feature for the org's current period.
+    Returns ``(reserved: bool, error: str | None)``. Limited features increment
+    ``FeatureUsage.used_value`` atomically. Unlimited features are allowed
+    without tracking usage.
+    If the org's current plan does not include the feature, returns
+    ``(False, error)``.
+    """
+    try:
+        subscription_id, feature_id, limit_value, is_allowed = _get_quota_meta(
+            organization, feature_code
+        )
+        if not is_allowed:
+            return False, f"Feature '{feature_code}' is not allowed for current plan."
+        if subscription_id is None or feature_id is None:
+            return False, f"Feature '{feature_code}' is not available."
+        if amount == 0 or limit_value is None:
+            return True, None
+
+        with transaction.atomic():
+            period = timezone.now().date().replace(day=1)
+            usage, _ = FeatureUsage.objects.select_for_update().get_or_create(
+                subscription_id=subscription_id,
+                feature_id=feature_id,
+                billing_period=period,
+                defaults={
+                    "usage_type": "resource",
+                    "used_value": 0,
+                },
+            )
+
+            if usage.used_value + amount > limit_value:
+                return False, (
+                    f"Quota exceeded for '{feature_code}' "
+                    f"(used {usage.used_value}/{limit_value})."
+                )
+
+            usage.used_value = F("used_value") + amount
+            usage.save(update_fields=["used_value"])
+            return True, None
+    except Exception as e:  # noqa: BLE001
+        logger.error(
+            "reserve_quota failed for %s/%s: %s",
+            organization.slug_name,
+            feature_code,
+            e,
+        )
+        return False, "Unable to reserve quota."
+
+
+def reserve_quotas(organization, feature_codes, amount=1):
+    reserved_features = []
+
+    for feature_code in feature_codes:
+        reserved, error = reserve_quota(organization, feature_code, amount)
+        if not reserved:
+            for reserved_feature in reserved_features:
+                release_quota(organization, reserved_feature, amount)
+            return False, error
+
+        if amount > 0:
+            reserved_features.append(feature_code)
+
+    return True, None
+
+
+def release_quota(organization, feature_code, amount=1):
+    """Release ``amount`` back to the org's quota (e.g. when create failed)."""
+    slug = organization.slug_name
+    try:
+        subscription_id, feature_id, _, is_allowed = _get_quota_meta(
+            organization, feature_code
+        )
+        if subscription_id is None or feature_id is None:
+            return
+        if not is_allowed:
+            return
+
+        with transaction.atomic():
+            period = timezone.now().date().replace(day=1)
+            usage = (
+                FeatureUsage.objects.select_for_update()
+                .filter(
+                    subscription_id=subscription_id,
+                    feature_id=feature_id,
+                    billing_period=period,
+                )
+                .first()
+            )
+            if usage is None:
+                return
+
+            new_value = max(usage.used_value - amount, 0)
+            usage.used_value = new_value
+            usage.save(update_fields=["used_value"])
+    except Exception as e:  # noqa: BLE001
+        logger.error("release_quota failed for %s/%s: %s", slug, feature_code, e)
+
+
+def release_quotas(organization, feature_codes, amount=1):
+    for feature_code in feature_codes:
+        release_quota(organization, feature_code, amount)
+
+
+def get_quota(organization, feature_code):
+    """Get quota for a feature."""
+    slug = organization.slug_name
+    try:
+        subscription_id, feature_id, _, is_allowed = _get_quota_meta(
+            organization, feature_code
+        )
+        if subscription_id is None or feature_id is None or not is_allowed:
+            return 0
+
+        period = timezone.now().date().replace(day=1)
+        usage = FeatureUsage.objects.filter(
+            subscription_id=subscription_id,
+            feature_id=feature_id,
+            billing_period=period,
+        ).first()
+        if usage is None:
+            return 0
+        return usage.used_value
+    except Exception as e:  # noqa: BLE001
+        logger.error("get_quota failed for %s/%s: %s", slug, feature_code, e)
+        return 0
+
+
+def get_quotas(organization, feature_codes):
+    return {
+        feature_code: get_quota(organization, feature_code)
+        for feature_code in feature_codes
+    }
