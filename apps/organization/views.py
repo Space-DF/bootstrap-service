@@ -84,9 +84,14 @@ class CheckOrganizationView(views.APIView):
                 period_start__lte=timezone.now(),
                 period_end__gte=timezone.now(),
             )
-            .select_related("plan")
+            .select_related("plan_item__plan")
             .order_by("-created_at")
             .first()
+        )
+        plan = (
+            subscription.plan_item.plan
+            if subscription and subscription.plan_item
+            else None
         )
 
         return Response(
@@ -98,10 +103,10 @@ class CheckOrganizationView(views.APIView):
                 else None,
                 "plan": (
                     {
-                        "code": subscription.plan.code,
-                        "name": subscription.plan.name,
+                        "code": plan.code,
+                        "name": plan.name,
                     }
-                    if subscription
+                    if plan
                     else None
                 ),
             },

@@ -14,12 +14,18 @@ from apps.organization.models import Organization
 class Plan(BaseModel):
     name = models.CharField(max_length=256)
     code = models.CharField(max_length=64, unique=True)
+    description = models.TextField(blank=True)
+
+    class Meta:
+        db_table = "plans"
+
+
+class PlanItem(BaseModel):
+    plan = models.ForeignKey(Plan, on_delete=models.CASCADE, related_name="plan_items")
     price = models.DecimalField(
         max_digits=10, decimal_places=2, default=0, validators=[MinValueValidator(0)]
     )
-    description = models.TextField(blank=True)
     icon = models.CharField(max_length=256, blank=True, default="")
-    support = models.TextField(blank=True)
     currency = models.CharField(
         max_length=8, choices=CurrencyType.choices, default=CurrencyType.USD
     )
@@ -32,7 +38,12 @@ class Plan(BaseModel):
     is_active = models.BooleanField(default=True)
 
     class Meta:
-        db_table = "plans"
+        db_table = "plan_items"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["plan", "billing_cycle"], name="unique_plan_billing_cycle"
+            ),
+        ]
 
 
 class Feature(BaseModel):
@@ -73,8 +84,12 @@ class Subscription(BaseModel):
         on_delete=models.CASCADE,
         related_name="subscriptions",
     )
-    plan = models.ForeignKey(
-        Plan, on_delete=models.CASCADE, related_name="subscriptions"
+    plan_item = models.ForeignKey(
+        PlanItem,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="subscriptions",
     )
     period_start = models.DateTimeField()
     period_end = models.DateTimeField()

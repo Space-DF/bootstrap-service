@@ -24,7 +24,7 @@ from django.forms.models import model_to_dict
 from django.utils import timezone
 
 from apps.authentication.models import RootUser
-from apps.billing.services import create_default_subscription
+from apps.billing.services.subscription import create_default_subscription
 from apps.custom_email.service import create_default_organization_email
 from apps.custom_page.service import create_default_pages
 from apps.organization.models import Organization

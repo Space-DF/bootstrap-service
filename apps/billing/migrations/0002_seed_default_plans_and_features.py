@@ -5,32 +5,46 @@ from django.db import migrations
 # Plan codes
 FREE_PLAN_CODE = "free"
 PRO_PLAN_CODE = "pro"
-PRO_PLAN_MONTHLY_CODE = PRO_PLAN_CODE + "_monthly"
-PRO_PLAN_YEARLY_CODE = PRO_PLAN_CODE + "_yearly"
 
-# Plan specs
 PLANS = [
     {
         "code": FREE_PLAN_CODE,
         "name": "Free",
+        "description": "First 10 devices free.\n1 week Data Retention",
+    },
+    {
+        "code": PRO_PLAN_CODE,
+        "name": "Pro",
+        "description": "Up to 100 devices\n6 months Data Retention",
+    },
+]
+
+PLAN_ITEMS = [
+    {
+        "plan_code": FREE_PLAN_CODE,
         "price": 0,
-        "description": "Free plan",
         "currency": "USD",
+        "discount": 0,
         "billing_cycle": "monthly",
     },
     {
-        "code": PRO_PLAN_MONTHLY_CODE,
-        "name": "Pro",
-        "price": 89,
-        "description": "Pro plan",
+        "plan_code": FREE_PLAN_CODE,
+        "price": 0,
         "currency": "USD",
+        "discount": 0,
+        "billing_cycle": "yearly",
+    },
+    {
+        "plan_code": PRO_PLAN_CODE,
+        "price": 99,
+        "currency": "USD",
+        "discount": 10,
         "billing_cycle": "monthly",
     },
     {
-        "code": PRO_PLAN_YEARLY_CODE,
-        "name": "Pro",
-        "price": 89 * 12,
-        "description": "Pro plan",
+        "plan_code": PRO_PLAN_CODE,
+        "price": 99 * 12,
+        "discount": 10,
         "currency": "USD",
         "billing_cycle": "yearly",
     },
@@ -41,9 +55,9 @@ PLANS = [
 #   quota    -> limit_value is the quota amount
 #   boolean  -> limit_value is null; use `enabled`
 FEATURES = [
-    {"code": "device.max_count", "name": "Max devices", "value_type": "limit"},
-    {"code": "space.max_count", "name": "Max spaces", "value_type": "limit"},
-    {"code": "dashboard.max_count", "name": "Max dashboards", "value_type": "limit"},
+    {"code": "device.max_count", "name": "Device(s)", "value_type": "limit"},
+    {"code": "space.max_count", "name": "Space(s)", "value_type": "limit"},
+    {"code": "dashboard.max_count", "name": "Dashboard(s)", "value_type": "limit"},
     {
         "code": "dashboard.basic_widgets",
         "name": "Basic widgets",
@@ -91,16 +105,11 @@ FREE_FEATURES = {
     "space.max_count": {"enabled": True, "limit_value": 1},
     "dashboard.max_count": {"enabled": True, "limit_value": 1},
     "dashboard.basic_widgets": {"enabled": True, "limit_value": None},
-    "dashboard.custom_charts": {"enabled": False, "limit_value": None},
     "map_view.2d": {"enabled": True, "limit_value": None},
-    "map_view.3d": {"enabled": False, "limit_value": None},
-    "whitelabel.enabled": {"enabled": False, "limit_value": None},
+    "map_view.3d": {"enabled": True, "limit_value": None},
     "data_retention.days": {"enabled": True, "limit_value": 7},
     "support.onboarding_video": {"enabled": True, "limit_value": None},
     "support.email": {"enabled": True, "limit_value": None},
-    "support.email_community": {"enabled": False, "limit_value": None},
-    "support.priority": {"enabled": False, "limit_value": None},
-    "support.fully_maintenance": {"enabled": False, "limit_value": None},
 }
 
 PRO_FEATURES = {
@@ -122,8 +131,7 @@ PRO_FEATURES = {
 
 PLAN_FEATURE_VALUES = {
     FREE_PLAN_CODE: FREE_FEATURES,
-    PRO_PLAN_MONTHLY_CODE: PRO_FEATURES,
-    PRO_PLAN_YEARLY_CODE: PRO_FEATURES,
+    PRO_PLAN_CODE: PRO_FEATURES,
 }
 
 FEATURE_CODES = [f["code"] for f in FEATURES]
@@ -136,10 +144,28 @@ def _upsert_plans(apps):
     for spec in PLANS:
         plan, _ = Plan.objects.update_or_create(
             code=spec["code"],
-            defaults={**{k: v for k, v in spec.items() if k != "code"}},
+            defaults={
+                "name": spec["name"],
+                "description": spec["description"],
+            },
         )
         plans_by_code[spec["code"]] = plan
     return plans_by_code
+
+
+def _upsert_plan_items(apps, plans_by_code):
+    PlanItem = apps.get_model("billing", "PlanItem")
+    for spec in PLAN_ITEMS:
+        PlanItem.objects.update_or_create(
+            plan=plans_by_code[spec["plan_code"]],
+            billing_cycle=spec["billing_cycle"],
+            defaults={
+                "price": spec["price"],
+                "discount": spec["discount"],
+                "currency": spec["currency"],
+                "is_active": True,
+            },
+        )
 
 
 def _upsert_features(apps):
@@ -176,14 +202,16 @@ def _upsert_plan_features(apps, plans_by_code, features_by_code):
 
 def forward(apps, schema_editor):
     plans_by_code = _upsert_plans(apps)
+    _upsert_plan_items(apps, plans_by_code)
     features_by_code = _upsert_features(apps)
     _upsert_plan_features(apps, plans_by_code, features_by_code)
 
 
 def reverse(apps, schema_editor):
     Plan = apps.get_model("billing", "Plan")
+    PlanItem = apps.get_model("billing", "PlanItem")
     Subscription = apps.get_model("billing", "Subscription")
-    if Subscription.objects.filter(plan__code__in=PLAN_CODES).exists():
+    if Subscription.objects.filter(plan_item__plan__code__in=PLAN_CODES).exists():
         raise RuntimeError(
             "Cannot reverse migration: active subscriptions exist for these plans."
         )
@@ -194,6 +222,11 @@ def reverse(apps, schema_editor):
         plan__code__in=PLAN_CODES,
         feature__code__in=FEATURE_CODES,
     ).delete()
+    for spec in PLAN_ITEMS:
+        PlanItem.objects.filter(
+            plan__code=spec["plan_code"],
+            billing_cycle=spec["billing_cycle"],
+        ).delete()
     Plan.objects.filter(code__in=PLAN_CODES).delete()
     Feature.objects.filter(code__in=FEATURE_CODES).delete()
 
