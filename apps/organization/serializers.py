@@ -5,6 +5,7 @@ from django.conf import settings
 from rest_framework import serializers
 
 from apps.billing.constants import PlanCodeType
+from apps.billing.services.subscription import get_current_subscription
 from apps.organization.models import Organization
 
 
@@ -43,11 +44,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
-        subscription = (
-            instance.subscriptions.select_related("plan_item__plan")
-            .order_by("-created_at")
-            .first()
-        )
+        subscription = get_current_subscription(instance)
         if subscription and subscription.plan_item and subscription.plan_item.plan:
             data["plan"] = subscription.plan_item.plan.code
             data["period_start"] = subscription.period_start

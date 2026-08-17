@@ -20,8 +20,35 @@ from apps.billing.models import (
 logger = logging.getLogger(__name__)
 
 
-def _chargebee_item_price_id(plan_item):
-    return f"{plan_item.plan.code}_{plan_item.billing_cycle}"
+def get_free_plan_item():
+    return (
+        PlanItem.objects.select_related("plan")
+        .filter(
+            plan__code=PlanCodeType.FREE,
+            billing_cycle=BillingCycle.MONTHLY,
+            is_active=True,
+        )
+        .first()
+    )
+
+
+def get_current_subscription(organization, for_update=False):
+    queryset = Subscription.objects.filter(organization=organization)
+    if for_update:
+        queryset = queryset.select_for_update()
+    else:
+        queryset = queryset.select_related("plan_item__plan")
+
+    now = timezone.now()
+    subscription = (
+        queryset.filter(period_end__gt=now)
+        .order_by("-period_end", "-updated_at", "-created_at")
+        .first()
+    )
+    if subscription:
+        return subscription
+
+    return queryset.order_by("-created_at").first()
 
 
 def create_default_subscription(organization, owner=None):
@@ -34,15 +61,16 @@ def create_default_subscription(organization, owner=None):
     Args:
         organization: The newly-created Organization.
     """
-    plan_item = (
-        PlanItem.objects.select_related("plan")
-        .filter(
-            plan__code=PlanCodeType.FREE,
-            billing_cycle=BillingCycle.MONTHLY,
-            is_active=True,
+    existing_subscription = get_current_subscription(organization)
+    if existing_subscription is not None:
+        logger.info(
+            "Subscription already exists for org %s, skipping default subscription "
+            "creation.",
+            organization.slug_name,
         )
-        .first()
-    )
+        return existing_subscription
+
+    plan_item = get_free_plan_item()
     if plan_item is None:
         logger.warning(
             "Default plan item '%s' not found, skipping subscription for org %s. "
@@ -70,12 +98,7 @@ def _get_quota_meta(organization, feature_code):
     """Resolve quota metadata for an org+feature.
     Returns (subscription_id, feature_id, limit_value, is_allowed).
     """
-    subscription = (
-        Subscription.objects.select_related("plan_item__plan")
-        .filter(organization=organization)
-        .order_by("-created_at")
-        .first()
-    )
+    subscription = get_current_subscription(organization)
     if subscription is None or subscription.plan_item_id is None:
         return None, None, None, False
 
@@ -341,7 +364,7 @@ def _get_free_plan_limits():
         ):
             code = pf.feature.code
             if pf.limit_value is not None:
-                limits[code] = pf.limit_value + (1 if code == "space.max_count" else 0)
+                limits[code] = pf.limit_value
 
     cache.set(cache_key, limits, 3600)
     return limits
@@ -356,63 +379,42 @@ def downgrade_to_free(organization):
     """Downgrade an organization from any paid plan to the Free plan."""
     now = timezone.now()
 
-    # 1. End all active non-Free subscriptions
-    ended = (
+    free_item = get_free_plan_item()
+    if free_item is None:
+        logger.error(
+            "Free plan item not found for org %s — cannot downgrade subscription.",
+            organization.slug_name,
+        )
+        return
+
+    with transaction.atomic():
+        subscription = get_current_subscription(organization, for_update=True)
+        if subscription is None:
+            logger.warning(
+                "No subscription found for org %s — cannot downgrade to Free.",
+                organization.slug_name,
+            )
+            return
+
         Subscription.objects.filter(
             organization=organization,
             period_end__gt=now,
-        )
-        .exclude(plan_item__plan__code=PlanCodeType.FREE)
-        .update(period_end=now)
-    )
+        ).exclude(id=subscription.id).update(period_end=now)
 
-    if not ended:
+        duration_days = BILLING_CYCLE_DAYS.get(free_item.billing_cycle, 30)
+        subscription.plan_item = free_item
+        subscription.period_start = now
+        subscription.period_end = now + timedelta(days=duration_days)
+        subscription.save(
+            update_fields=["plan_item", "period_start", "period_end", "updated_at"]
+        )
+
         logger.info(
-            "No active paid subscription to downgrade for org %s — "
-            "may already be on Free plan.",
+            "Updated existing subscription %s for org %s to Free.",
+            subscription.id,
             organization.slug_name,
         )
 
-    # 2. Check if org already has an active Free subscription
-    already_free = Subscription.objects.filter(
-        organization=organization,
-        period_end__gt=now,
-        plan_item__plan__code=PlanCodeType.FREE,
-    ).exists()
-    if already_free:
-        logger.info(
-            "Org %s already has an active Free subscription, skipping creation.",
-            organization.slug_name,
-        )
-    else:
-        free_item = (
-            PlanItem.objects.select_related("plan")
-            .filter(
-                plan__code=PlanCodeType.FREE,
-                billing_cycle=BillingCycle.MONTHLY,
-                is_active=True,
-            )
-            .first()
-        )
-        if free_item is None:
-            logger.error(
-                "Free plan item not found for org %s — cannot create Free subscription.",
-                organization.slug_name,
-            )
-        else:
-            duration_days = BILLING_CYCLE_DAYS.get(free_item.billing_cycle, 30)
-            Subscription.objects.create(
-                organization=organization,
-                plan_item=free_item,
-                period_start=now,
-                period_end=now + timedelta(days=duration_days),
-            )
-            logger.info(
-                "Created Free subscription for org %s (was on paid plan).",
-                organization.slug_name,
-            )
-
-    # 3. Enqueue downgrade tasks to each service
     limits = _get_free_plan_limits()
     payload = {"org_slug": organization.slug_name, "limits": limits}
 
@@ -422,6 +424,53 @@ def downgrade_to_free(organization):
         "Org %s downgraded to Free — enqueued downgrade tasks.",
         organization.slug_name,
     )
+
+
+def _update_subscription_to_free(subscription):
+    """Update a specific subscription row to Free."""
+    organization = subscription.organization
+    free_item = get_free_plan_item()
+    if free_item is None:
+        logger.error(
+            "Free plan item not found for org %s — cannot downgrade subscription %s.",
+            organization.slug_name,
+            subscription.id,
+        )
+        return False
+
+    now = timezone.now()
+    duration_days = BILLING_CYCLE_DAYS.get(free_item.billing_cycle, 30)
+    with transaction.atomic():
+        Subscription.objects.filter(
+            organization=organization,
+            period_end__gt=now,
+        ).exclude(id=subscription.id).update(period_end=now)
+
+        subscription.plan_item = free_item
+        subscription.period_start = now
+        subscription.period_end = now + timedelta(days=duration_days)
+        subscription.save(
+            update_fields=["plan_item", "period_start", "period_end", "updated_at"]
+        )
+    return True
+
+
+def downgrade_subscription_to_free(subscription):
+    """Downgrade a specific subscription row to Free and enforce Free limits."""
+    updated = _update_subscription_to_free(subscription)
+    if not updated:
+        return False
+
+    limits = _get_free_plan_limits()
+    payload = {"org_slug": subscription.organization.slug_name, "limits": limits}
+    _send_subscription_tasks("downgrade", payload)
+
+    logger.info(
+        "Subscription %s for org %s downgraded to Free — enqueued downgrade tasks.",
+        subscription.id,
+        subscription.organization.slug_name,
+    )
+    return True
 
 
 def renew_subscription(organization):
