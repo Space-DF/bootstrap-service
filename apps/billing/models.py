@@ -112,8 +112,24 @@ class FeatureUsage(BaseModel):
         Feature, on_delete=models.CASCADE, related_name="feature_usages"
     )
     usage_type = models.CharField(max_length=16, choices=UsageType.choices)
+    scope_type = models.CharField(max_length=32, db_index=True)
+    scope_id = models.UUIDField(db_index=True)
     used_value = models.BigIntegerField(default=0, validators=[MinValueValidator(0)])
-    billing_period = models.DateField()
+    period_start = models.DateField()
+    period_end = models.DateField()
 
     class Meta:
         db_table = "feature_usages"
+        constraints = [
+            models.UniqueConstraint(
+                fields=[
+                    "subscription",
+                    "feature",
+                    "scope_type",
+                    "scope_id",
+                    "period_start",
+                    "period_end",
+                ],
+                name="unique_feature_usage_scope_period",
+            ),
+        ]

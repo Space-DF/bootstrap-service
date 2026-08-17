@@ -21,6 +21,7 @@ def process_contact_sales_lead(user, org):
         return
 
     envelope = {
+        "header_image_url": f"{settings.HOST}/static/images/auth/subscription_request.png",
         "plan_name": PlanCodeType.PRO.upper(),
         "subscription_id": str(subscription.id) if subscription else None,
         "name": _user_display_name(user),
@@ -48,7 +49,7 @@ def _store_contact_sales_lead(envelope):
         return
 
     cache.set(
-        f"{LEAD_CACHE_PREFIX}:{subscription_id}",
+        "{}:{}".format(LEAD_CACHE_PREFIX, subscription_id),
         envelope,
         timeout=LEAD_CACHE_TTL,
     )
@@ -56,7 +57,7 @@ def _store_contact_sales_lead(envelope):
 
 def get_contact_sales_lead(subscription_id):
     """Return the latest contact-sales lead for an org."""
-    return cache.get(f"{LEAD_CACHE_PREFIX}:{subscription_id}")
+    return cache.get("{}:{}".format(LEAD_CACHE_PREFIX, subscription_id))
 
 
 def _send_contact_sales_email(envelope):
