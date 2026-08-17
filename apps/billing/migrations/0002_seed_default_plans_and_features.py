@@ -28,25 +28,11 @@ PLAN_ITEMS = [
         "billing_cycle": "monthly",
     },
     {
-        "plan_code": FREE_PLAN_CODE,
-        "price": 0,
-        "currency": "USD",
-        "discount": 0,
-        "billing_cycle": "yearly",
-    },
-    {
         "plan_code": PRO_PLAN_CODE,
         "price": 99,
         "currency": "USD",
         "discount": 10,
         "billing_cycle": "monthly",
-    },
-    {
-        "plan_code": PRO_PLAN_CODE,
-        "price": 99 * 12,
-        "discount": 10,
-        "currency": "USD",
-        "billing_cycle": "yearly",
     },
 ]
 

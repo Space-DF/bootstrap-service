@@ -5,17 +5,13 @@ from django.core.cache import cache
 from django.utils import timezone
 
 from apps.billing.constants import PlanCodeType
-from apps.billing.models import Subscription
+from apps.billing.services.subscription import get_current_subscription
 from apps.contact_sales.constants import LEAD_CACHE_PREFIX, LEAD_CACHE_TTL
 
 
 def process_contact_sales_lead(user, org):
     """Build lead from user + org, send email, store in Redis."""
-    subscription = (
-        Subscription.objects.filter(organization=org, period_end__gt=timezone.now())
-        .order_by("-created_at")
-        .first()
-    )
+    subscription = get_current_subscription(org)
 
     if subscription and get_contact_sales_lead(str(subscription.id)):
         return
