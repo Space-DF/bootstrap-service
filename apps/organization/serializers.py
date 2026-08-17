@@ -48,11 +48,15 @@ class OrganizationSerializer(serializers.ModelSerializer):
             .order_by("-created_at")
             .first()
         )
-        data["plan"] = (
-            subscription.plan_item.plan.code
-            if subscription and subscription.plan_item and subscription.plan_item.plan
-            else PlanCodeType.FREE
-        )
+        if subscription and subscription.plan_item and subscription.plan_item.plan:
+            data["plan"] = subscription.plan_item.plan.code
+            data["period_start"] = subscription.period_start
+            data["period_end"] = subscription.period_end
+        else:
+            data["plan"] = PlanCodeType.FREE
+            data["period_start"] = None
+            data["period_end"] = None
+
         if instance.logo and instance.logo not in ["", None]:
             data["url_logo"] = get_presigned_url(
                 settings.AWS_S3.get("AWS_STORAGE_BUCKET_NAME"),

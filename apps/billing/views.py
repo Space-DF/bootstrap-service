@@ -10,11 +10,8 @@ from apps.billing.serializers import (
     ReserveQuotaSerializer,
     ViewQuotaSerializer,
 )
-from apps.billing.services.subscription import (
-    get_quotas,
-    release_quotas,
-    reserve_quotas,
-)
+from apps.billing.services.subscription import get_quota, release_quota, reserve_quota
+from utils.request_context import resolve_organization_from_header
 
 
 class PlanListView(generics.ListAPIView):
@@ -63,8 +60,7 @@ class ReserveQuotaView(generics.GenericAPIView):
 
     Request body::
         {
-            "organization": "<slug_name>",
-            "feature": ["<code>"],
+            "feature": "<code>",
             "amount": 1,
             "scope_type": "user",
             "scope_id": "<uuid>"
@@ -79,25 +75,18 @@ class ReserveQuotaView(generics.GenericAPIView):
     def post(self, request):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        slug_name = serializer.validated_data["organization"]
-        feature_codes = serializer.validated_data["feature"]
+        feature_code = serializer.validated_data["feature"]
         amount = serializer.validated_data["amount"]
         scope_type = serializer.validated_data.get("scope_type")
         scope_id = serializer.validated_data.get("scope_id")
 
-        from apps.organization.models import Organization
+        organization, error_response = resolve_organization_from_header(request)
+        if error_response:
+            return error_response
 
-        try:
-            organization = Organization.objects.get(slug_name=slug_name)
-        except Organization.DoesNotExist:
-            return Response(
-                {"detail": f"Organization '{slug_name}' not found."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        reserved, error = reserve_quotas(
+        reserved, error = reserve_quota(
             organization,
-            feature_codes,
+            feature_code,
             amount,
             scope_type,
             scope_id,
@@ -115,8 +104,7 @@ class ReleaseQuotaView(generics.GenericAPIView):
 
     Request body::
         {
-            "organization": "<slug_name>",
-            "feature": ["<code>"],
+            "feature": "<code>",
             "amount": 1,
             "scope_type": "user",
             "scope_id": "<uuid>"
@@ -129,23 +117,16 @@ class ReleaseQuotaView(generics.GenericAPIView):
     def post(self, request):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        slug_name = serializer.validated_data["organization"]
-        feature_codes = serializer.validated_data["feature"]
+        feature_code = serializer.validated_data["feature"]
         amount = serializer.validated_data["amount"]
         scope_type = serializer.validated_data.get("scope_type")
         scope_id = serializer.validated_data.get("scope_id")
 
-        from apps.organization.models import Organization
+        organization, error_response = resolve_organization_from_header(request)
+        if error_response:
+            return error_response
 
-        try:
-            organization = Organization.objects.get(slug_name=slug_name)
-        except Organization.DoesNotExist:
-            return Response(
-                {"detail": f"Organization '{slug_name}' not found."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        release_quotas(organization, feature_codes, amount, scope_type, scope_id)
+        release_quota(organization, feature_code, amount, scope_type, scope_id)
         return Response({"status": "released"})
 
 
@@ -154,8 +135,7 @@ class QuotaView(generics.GenericAPIView):
 
     Request body::
         {
-            "organization": "<slug_name>",
-            "feature": ["<code>"],
+            "feature": "<code>",
             "scope_type": "user",
             "scope_id": "<uuid>"
         }
@@ -166,22 +146,13 @@ class QuotaView(generics.GenericAPIView):
     def post(self, request):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        slug_name = serializer.validated_data["organization"]
-        feature_codes = serializer.validated_data["feature"]
+        feature_code = serializer.validated_data["feature"]
         scope_type = serializer.validated_data.get("scope_type")
         scope_id = serializer.validated_data.get("scope_id")
 
-        from apps.organization.models import Organization
+        organization, error_response = resolve_organization_from_header(request)
+        if error_response:
+            return error_response
 
-        try:
-            organization = Organization.objects.get(slug_name=slug_name)
-        except Organization.DoesNotExist:
-            return Response(
-                {"detail": f"Organization '{slug_name}' not found."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        quotas = get_quotas(organization, feature_codes, scope_type, scope_id)
-        if len(feature_codes) == 1:
-            return Response({"quota": quotas[feature_codes[0]]})
-        return Response({"quotas": quotas})
+        quota = get_quota(organization, feature_code, scope_type, scope_id)
+        return Response({"quota": quota})
