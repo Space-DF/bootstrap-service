@@ -95,11 +95,7 @@ class PlanWithFeaturesSerializer(PlanSerializer):
 
 
 class ReserveQuotaSerializer(serializers.Serializer):
-    organization = serializers.CharField()
-    feature = serializers.ListField(
-        child=serializers.CharField(),
-        allow_empty=False,
-    )
+    feature = serializers.CharField()
     scope_type = serializers.CharField(
         required=False,
         default=FeatureUsageScope.ORGANIZATION,
@@ -113,11 +109,7 @@ class ReserveQuotaSerializer(serializers.Serializer):
 
 
 class ViewQuotaSerializer(serializers.Serializer):
-    organization = serializers.CharField()
-    feature = serializers.ListField(
-        child=serializers.CharField(),
-        allow_empty=False,
-    )
+    feature = serializers.CharField()
     scope_type = serializers.CharField(
         required=False,
         default=FeatureUsageScope.ORGANIZATION,
