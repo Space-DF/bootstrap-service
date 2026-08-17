@@ -64,6 +64,7 @@ INSTALLED_APPS = [
     "apps.custom_page",
     "apps.custom_email",
     "apps.organization_setting",
+    "apps.billing",
     "apps.organization_roles",
     "apps.authentication",
 ]
