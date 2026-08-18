@@ -1,0 +1,778 @@
+import logging
+from dataclasses import dataclass
+from datetime import timedelta
+from urllib.parse import urljoin
+
+from common.apps.billing.constants import FeatureCode, FeatureUsageScope
+from common.celery.task_senders import send_subscription_task
+from common.utils.email_context import get_email_context, render_email_format
+from common.utils.send_email import send_email
+from django.conf import settings
+from django.core.cache import cache
+from django.db import transaction
+from django.db.models import F
+from django.utils import timezone
+
+from apps.billing.constants import BILLING_CYCLE_DAYS, BillingCycle, PlanCodeType
+from apps.billing.models import (
+    Feature,
+    FeatureUsage,
+    PlanFeature,
+    PlanItem,
+    Subscription,
+)
+from apps.organization_roles.constants import OrganizationRoleType
+from apps.organization_roles.models import OrganizationRoleUser
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class SubscriptionTask:
+    """A service that participates in subscription lifecycle events.
+
+    ``task_name`` is derived from service + lifecycle (e.g. ``device_downgrade``)
+    so adding a service is one entry below, not two. ``required_features`` lists
+    the feature codes the caller must supply limits/entitlements for before the
+    task is dispatched (empty = no gating, e.g. console housekeeping).
+    """
+
+    service: str
+    required_features: tuple = ()
+
+    def task_name(self, lifecycle: str) -> str:
+        return f"{self.service}_{lifecycle}"
+
+
+# Single source of truth for which services get subscription lifecycle tasks.
+# To add a service: append one SubscriptionTask here.
+# NOTE: "auth" gates SPACE_MAX_COUNT because the auth-service owns the Space model.
+SUBSCRIPTION_SERVICES = (
+    SubscriptionTask("device", (FeatureCode.DEVICE_MAX_COUNT,)),
+    SubscriptionTask("auth", (FeatureCode.SPACE_MAX_COUNT,)),
+    SubscriptionTask("dashboard", (FeatureCode.DASHBOARD_MAX_COUNT,)),
+    SubscriptionTask("console", ()),
+    SubscriptionTask("telemetry", (FeatureCode.AUTOMATION_MAX_COUNT,)),
+)
+
+
+def get_free_plan_item():
+    return (
+        PlanItem.objects.select_related("plan")
+        .filter(
+            plan__code=PlanCodeType.FREE,
+            billing_cycle=BillingCycle.MONTHLY,
+            is_active=True,
+        )
+        .first()
+    )
+
+
+def get_current_subscription(organization, for_update=False):
+    queryset = Subscription.objects.filter(organization=organization)
+    if for_update:
+        queryset = queryset.select_for_update()
+    else:
+        queryset = queryset.select_related("plan_item__plan")
+
+    now = timezone.now()
+    subscription = (
+        queryset.filter(period_end__gt=now)
+        .order_by("-period_end", "-updated_at", "-created_at")
+        .first()
+    )
+    if subscription:
+        return subscription
+
+    return queryset.order_by("-created_at").first()
+
+
+def create_default_subscription(organization, owner=None):
+    """Create the default Free subscription for a newly-created organization.
+
+    Idempotent-safe: returns None (without raising) if the Free plan has not
+    been seeded yet, so organization creation never fails because of billing
+    setup.
+
+    Args:
+        organization: The newly-created Organization.
+    """
+    existing_subscription = get_current_subscription(organization)
+    if existing_subscription is not None:
+        logger.info(
+            "Subscription already exists for org %s, skipping default subscription "
+            "creation.",
+            organization.slug_name,
+        )
+        return existing_subscription
+
+    plan_item = get_free_plan_item()
+    if plan_item is None:
+        logger.warning(
+            "Default plan item '%s' not found, skipping subscription for org %s. "
+            "Run the billing seed migration.",
+            PlanCodeType.FREE,
+            organization.slug_name,
+        )
+        return None
+
+    now = timezone.now()
+    duration_days = BILLING_CYCLE_DAYS.get(plan_item.billing_cycle, 30)
+    period_end = now + timedelta(days=duration_days)
+
+    subscription = Subscription.objects.create(
+        organization=organization,
+        plan_item=plan_item,
+        period_start=now,
+        period_end=period_end,
+    )
+
+    return subscription
+
+
+def _get_quota_meta(organization, feature_code):
+    """Resolve quota metadata for an org+feature.
+    Returns (subscription_id, feature_id, limit_value, is_allowed).
+    """
+    subscription = get_current_subscription(organization)
+    if subscription is None or subscription.plan_item_id is None:
+        return None, None, None, False
+
+    feature = Feature.objects.filter(code=feature_code).first()
+    if feature is None:
+        return None, None, None, False
+
+    plan_feature = PlanFeature.objects.filter(
+        plan=subscription.plan_item.plan,
+        feature=feature,
+        enabled=True,
+    ).first()
+    if plan_feature is None:
+        return subscription.id, feature.id, None, False
+
+    return subscription.id, feature.id, plan_feature.limit_value, True
+
+
+def _current_period():
+    period_start = timezone.now().date().replace(day=1)
+    if period_start.month == 12:
+        period_end = period_start.replace(
+            year=period_start.year + 1,
+            month=1,
+        )
+    else:
+        period_end = period_start.replace(month=period_start.month + 1)
+    return period_start, period_end
+
+
+def _resolve_scope(organization, scope_type=None, scope_id=None):
+    scope_type = scope_type or FeatureUsageScope.ORGANIZATION
+    if scope_type == FeatureUsageScope.ORGANIZATION:
+        return scope_type, organization.id
+    if scope_id is None:
+        raise ValueError(f"scope_id is required for scope_type '{scope_type}'.")
+    return scope_type, scope_id
+
+
+def _usage_lookup(
+    subscription_id,
+    feature_id,
+    period_start,
+    period_end,
+    scope_type,
+    scope_id,
+):
+    return {
+        "subscription_id": subscription_id,
+        "feature_id": feature_id,
+        "scope_type": scope_type,
+        "scope_id": scope_id,
+        "period_start": period_start,
+        "period_end": period_end,
+    }
+
+
+def reserve_quota(
+    organization,
+    feature_code,
+    amount=1,
+    scope_type=None,
+    scope_id=None,
+):
+    """Atomically reserve ``amount`` of a feature for the org's current period.
+    Returns ``(reserved: bool, error: str | None)``. Limited features increment
+    ``FeatureUsage.used_value`` atomically for the resolved scope.
+    Unlimited features are allowed without tracking usage.
+    If the org's current plan does not include the feature, returns
+    ``(False, error)``.
+    """
+    try:
+        subscription_id, feature_id, limit_value, is_allowed = _get_quota_meta(
+            organization, feature_code
+        )
+        if not is_allowed:
+            return False, f"Feature '{feature_code}' is not allowed for current plan."
+        if subscription_id is None or feature_id is None:
+            return False, f"Feature '{feature_code}' is not available."
+        if amount == 0 or limit_value is None:
+            return True, None
+
+        with transaction.atomic():
+            period_start, period_end = _current_period()
+            scope_type, scope_id = _resolve_scope(organization, scope_type, scope_id)
+            usage, _ = FeatureUsage.objects.select_for_update().get_or_create(
+                **_usage_lookup(
+                    subscription_id,
+                    feature_id,
+                    period_start,
+                    period_end,
+                    scope_type,
+                    scope_id,
+                ),
+                defaults={
+                    "usage_type": "resource",
+                    "used_value": 0,
+                },
+            )
+
+            if usage.used_value + amount > limit_value:
+                return False, (
+                    f"Quota exceeded for '{feature_code}' "
+                    f"(used {usage.used_value}/{limit_value})."
+                )
+
+            usage.used_value = F("used_value") + amount
+            usage.save(update_fields=["used_value"])
+            return True, None
+    except Exception as e:  # noqa: BLE001
+        logger.error(
+            "reserve_quota failed for %s/%s: %s",
+            organization.slug_name,
+            feature_code,
+            e,
+        )
+        return False, "Unable to reserve quota."
+
+
+def reserve_quotas(
+    organization,
+    feature_codes,
+    amount=1,
+    scope_type=None,
+    scope_id=None,
+):
+    reserved_features = []
+
+    for feature_code in feature_codes:
+        reserved, error = reserve_quota(
+            organization,
+            feature_code,
+            amount,
+            scope_type,
+            scope_id,
+        )
+        if not reserved:
+            for reserved_feature in reserved_features:
+                release_quota(
+                    organization,
+                    reserved_feature,
+                    amount,
+                    scope_type,
+                    scope_id,
+                )
+            return False, error
+
+        if amount > 0:
+            reserved_features.append(feature_code)
+
+    return True, None
+
+
+def release_quota(
+    organization,
+    feature_code,
+    amount=1,
+    scope_type=None,
+    scope_id=None,
+):
+    """Release ``amount`` back to the org's quota (e.g. when create failed)."""
+    slug = organization.slug_name
+    try:
+        subscription_id, feature_id, _, is_allowed = _get_quota_meta(
+            organization, feature_code
+        )
+        if subscription_id is None or feature_id is None:
+            return
+        if not is_allowed:
+            return
+
+        with transaction.atomic():
+            period_start, period_end = _current_period()
+            scope_type, scope_id = _resolve_scope(organization, scope_type, scope_id)
+            usage = (
+                FeatureUsage.objects.select_for_update()
+                .filter(
+                    **_usage_lookup(
+                        subscription_id,
+                        feature_id,
+                        period_start,
+                        period_end,
+                        scope_type,
+                        scope_id,
+                    )
+                )
+                .first()
+            )
+            if usage is None:
+                return
+
+            new_value = max(usage.used_value - amount, 0)
+            usage.used_value = new_value
+            usage.save(update_fields=["used_value"])
+    except Exception as e:  # noqa: BLE001
+        logger.error("release_quota failed for %s/%s: %s", slug, feature_code, e)
+
+
+def release_quotas(
+    organization,
+    feature_codes,
+    amount=1,
+    scope_type=None,
+    scope_id=None,
+):
+    for feature_code in feature_codes:
+        release_quota(organization, feature_code, amount, scope_type, scope_id)
+
+
+def get_quota(organization, feature_code, scope_type=None, scope_id=None):
+    """Get quota for a feature."""
+    slug = organization.slug_name
+    try:
+        subscription_id, feature_id, _, is_allowed = _get_quota_meta(
+            organization, feature_code
+        )
+        if subscription_id is None or feature_id is None or not is_allowed:
+            return 0
+
+        period_start, period_end = _current_period()
+        scope_type, scope_id = _resolve_scope(organization, scope_type, scope_id)
+        usage = FeatureUsage.objects.filter(
+            **_usage_lookup(
+                subscription_id,
+                feature_id,
+                period_start,
+                period_end,
+                scope_type,
+                scope_id,
+            )
+        ).first()
+        if usage is None:
+            return 0
+        return usage.used_value
+    except Exception as e:  # noqa: BLE001
+        logger.error("get_quota failed for %s/%s: %s", slug, feature_code, e)
+        return 0
+
+
+def get_quotas(organization, feature_codes, scope_type=None, scope_id=None):
+    return {
+        feature_code: get_quota(organization, feature_code, scope_type, scope_id)
+        for feature_code in feature_codes
+    }
+
+
+def _get_plan_entitlements(plan):
+    if plan is None:
+        return {}, set()
+
+    cache_key = ":".join(("billing", "plan_entitlements", str(plan.id)))
+    entitlements = cache.get(cache_key)
+    if entitlements is not None:
+        return entitlements["limits"], set(entitlements["unlimited_features"])
+
+    limits = {}
+    unlimited_features = set()
+    for pf in (
+        PlanFeature.objects.filter(plan=plan, enabled=True)
+        .select_related("feature")
+        .iterator()
+    ):
+        code = pf.feature.code
+        if pf.limit_value is not None:
+            if pf.limit_value < 0:
+                raise ValueError(f"plan limit {code} must be >= 0")
+            limits[code] = pf.limit_value
+        else:
+            unlimited_features.add(code)
+
+    cache.set(
+        cache_key,
+        {
+            "limits": limits,
+            "unlimited_features": tuple(sorted(unlimited_features)),
+        },
+        3600,
+    )
+    return limits, unlimited_features
+
+
+def _get_plan_limits(plan):
+    limits, _ = _get_plan_entitlements(plan)
+    return limits
+
+
+def _get_free_plan_limits():
+    """Cached Free plan limits dict"""
+    from apps.billing.models import Plan
+
+    free_plan = Plan.objects.filter(code=PlanCodeType.FREE).first()
+    return _get_plan_limits(free_plan)
+
+
+def _subscription_entitlement_payload(subscription):
+    if (
+        subscription is None
+        or not subscription.plan_item
+        or not subscription.plan_item.plan
+    ):
+        raise ValueError("subscription with plan is required for subscription upgrade")
+
+    limits, unlimited_features = _get_plan_entitlements(subscription.plan_item.plan)
+    return {
+        "limits": limits,
+        "unlimited_features": sorted(unlimited_features),
+    }
+
+
+def _send_subscription_tasks(lifecycle, payload):
+    for task in SUBSCRIPTION_SERVICES:
+        send_subscription_task(
+            task.service, lifecycle, task.task_name(lifecycle), payload
+        )
+
+
+def _required_subscription_features():
+    """All feature codes any subscription task requires (across all services)."""
+    return {code for task in SUBSCRIPTION_SERVICES for code in task.required_features}
+
+
+def _validate_no_negative_limits(limits, lifecycle):
+    negative = [
+        code for code, value in limits.items() if value is not None and value < 0
+    ]
+    if negative:
+        raise ValueError(
+            f"{lifecycle} limits must be >= 0: " + ", ".join(sorted(negative))
+        )
+
+
+def _validate_downgrade_limits(limits):
+    required = _required_subscription_features()
+    missing = [code for code in required if code not in limits]
+    if missing:
+        raise ValueError(
+            "missing required downgrade limits: " + ", ".join(sorted(missing))
+        )
+    _validate_no_negative_limits(limits, "downgrade")
+
+
+def _validate_upgrade_entitlements(limits, unlimited_features):
+    required = _required_subscription_features()
+    unlimited = set(unlimited_features)
+    missing = [
+        code for code in required if code not in limits and code not in unlimited
+    ]
+    if missing:
+        raise ValueError(
+            "missing required upgrade entitlements: " + ", ".join(sorted(missing))
+        )
+    _validate_no_negative_limits(limits, "upgrade")
+
+
+def _user_display_name(user):
+    full = f"{user.first_name or ''} {user.last_name or ''}".strip()
+    return full or user.email
+
+
+def _get_organization_owner(organization):
+    return (
+        OrganizationRoleUser.objects.select_related("root_user")
+        .filter(
+            organization_role__organization=organization,
+            organization_role__name__iexact=OrganizationRoleType.OWNER_ROLE,
+        )
+        .order_by("id")
+        .first()
+    )
+
+
+def _get_manage_subscription_url(organization):
+    frontend_url = getattr(settings, "HOST_FRONTEND_ADMIN", "")
+    return urljoin(
+        frontend_url.rstrip("/") + "/",
+        f"organizations/{organization.slug_name}/plans",
+    )
+
+
+def _send_subscription_expired_email(subscription, plan_name, expiry_date):
+    owner_role_user = _get_organization_owner(subscription.organization)
+    if owner_role_user is None:
+        logger.warning(
+            "No owner found for org %s; skipping subscription expired email.",
+            subscription.organization.slug_name,
+        )
+        return
+
+    owner = owner_role_user.root_user
+    email_context = get_email_context(
+        {
+            "host": settings.HOST,
+            "header_image_url": (
+                f"{settings.HOST}/static/images/auth/subscription_expried.png"
+            ),
+            "user_name": _user_display_name(owner),
+            "plan_name": plan_name,
+            "organization_name": subscription.organization.name,
+            "expiry_date": timezone.localtime(expiry_date).strftime("%B %d, %Y"),
+            "manage_subscription_url": _get_manage_subscription_url(
+                subscription.organization
+            ),
+        },
+        custom_email={},
+    )
+    message = render_email_format("email_subscription_expired.html", email_context)
+    send_email(
+        settings.DEFAULT_FROM_EMAIL,
+        [owner.email],
+        "Your SpaceDF subscription has expired",
+        message,
+    )
+
+
+def _send_subscription_renewal_reminder_email(subscription):
+    if not subscription.plan_item or not subscription.plan_item.plan:
+        return
+    if subscription.plan_item.plan.code == PlanCodeType.FREE:
+        return
+
+    owner_role_user = _get_organization_owner(subscription.organization)
+    if owner_role_user is None:
+        logger.warning(
+            "No owner found for org %s; skipping subscription renewal reminder email.",
+            subscription.organization.slug_name,
+        )
+        return
+
+    owner = owner_role_user.root_user
+    email_context = get_email_context(
+        {
+            "host": settings.HOST,
+            "header_image_url": (
+                f"{settings.HOST}/static/images/auth/subscription_expire_soon.png"
+            ),
+            "days_until_expiry": 7,
+            "user_name": _user_display_name(owner),
+            "plan_name": subscription.plan_item.plan.name,
+            "organization_name": subscription.organization.name,
+            "expiry_date": timezone.localtime(subscription.period_end).strftime(
+                "%B %d, %Y"
+            ),
+        },
+        custom_email={},
+    )
+    message = render_email_format(
+        "email_subscription_expiry_reminder.html",
+        email_context,
+    )
+    send_email(
+        settings.DEFAULT_FROM_EMAIL,
+        [owner.email],
+        "Your SpaceDF subscription will expire soon",
+        message,
+    )
+
+
+def send_subscription_renewal_reminder(subscription):
+    cache_key = "billing:subscription_renewal_reminder:" "{}:{}".format(
+        subscription.id, subscription.period_end.isoformat()
+    )
+    if cache.get(cache_key):
+        return False
+
+    _send_subscription_renewal_reminder_email(subscription)
+    cache.set(cache_key, True, timeout=60 * 60 * 24 * 14)
+    return True
+
+
+def _maybe_send_subscription_expired_email(subscription, plan_item, expiry_date):
+    if not plan_item or not plan_item.plan or plan_item.plan.code == PlanCodeType.FREE:
+        return
+    if expiry_date > timezone.now():
+        logger.info(
+            "Subscription %s for org %s downgraded before expiry; skipping expired "
+            "email.",
+            subscription.id,
+            subscription.organization.slug_name,
+        )
+        return
+
+    _send_subscription_expired_email(subscription, plan_item.plan.name, expiry_date)
+
+
+def downgrade_to_free(organization):
+    """Downgrade an organization from any paid plan to the Free plan."""
+    now = timezone.now()
+
+    free_item = get_free_plan_item()
+    if free_item is None:
+        logger.error(
+            "Free plan item not found for org %s — cannot downgrade subscription.",
+            organization.slug_name,
+        )
+        return
+
+    limits = _get_plan_limits(free_item.plan)
+    _validate_downgrade_limits(limits)
+
+    with transaction.atomic():
+        subscription = get_current_subscription(organization, for_update=True)
+        if subscription is None:
+            logger.warning(
+                "No subscription found for org %s — cannot downgrade to Free.",
+                organization.slug_name,
+            )
+            return
+
+        previous_plan_item = subscription.plan_item
+        previous_period_end = subscription.period_end
+
+        Subscription.objects.filter(
+            organization=organization,
+            period_end__gt=now,
+        ).exclude(id=subscription.id).update(period_end=now)
+
+        duration_days = BILLING_CYCLE_DAYS.get(free_item.billing_cycle, 30)
+        subscription.plan_item = free_item
+        subscription.period_start = now
+        subscription.period_end = now + timedelta(days=duration_days)
+        subscription.save(
+            update_fields=["plan_item", "period_start", "period_end", "updated_at"]
+        )
+
+        logger.info(
+            "Updated existing subscription %s for org %s to Free.",
+            subscription.id,
+            organization.slug_name,
+        )
+
+    payload = {
+        "org_slug": organization.slug_name,
+        "limits": limits,
+        "unlimited_features": [],
+        "downgraded_at": now.isoformat(),
+    }
+
+    _send_subscription_tasks("downgrade", payload)
+    _maybe_send_subscription_expired_email(
+        subscription,
+        previous_plan_item,
+        previous_period_end,
+    )
+
+    logger.info(
+        "Org %s downgraded to Free — enqueued downgrade tasks.",
+        organization.slug_name,
+    )
+
+
+def _update_subscription_to_free(subscription):
+    """Update a specific subscription row to Free."""
+    organization = subscription.organization
+    free_item = get_free_plan_item()
+    if free_item is None:
+        logger.error(
+            "Free plan item not found for org %s — cannot downgrade subscription %s.",
+            organization.slug_name,
+            subscription.id,
+        )
+        return False
+
+    now = timezone.now()
+    duration_days = BILLING_CYCLE_DAYS.get(free_item.billing_cycle, 30)
+    with transaction.atomic():
+        Subscription.objects.filter(
+            organization=organization,
+            period_end__gt=now,
+        ).exclude(id=subscription.id).update(period_end=now)
+
+        subscription.plan_item = free_item
+        subscription.period_start = now
+        subscription.period_end = now + timedelta(days=duration_days)
+        subscription.save(
+            update_fields=["plan_item", "period_start", "period_end", "updated_at"]
+        )
+    return True
+
+
+def downgrade_subscription_to_free(subscription):
+    """Downgrade a specific subscription row to Free and enforce Free limits."""
+    previous_plan_item = subscription.plan_item
+    previous_period_end = subscription.period_end
+    limits = _get_free_plan_limits()
+    _validate_downgrade_limits(limits)
+    updated = _update_subscription_to_free(subscription)
+    if not updated:
+        return False
+
+    payload = {
+        "org_slug": subscription.organization.slug_name,
+        "limits": limits,
+        "unlimited_features": [],
+        "downgraded_at": timezone.now().isoformat(),
+    }
+    _send_subscription_tasks("downgrade", payload)
+    _maybe_send_subscription_expired_email(
+        subscription,
+        previous_plan_item,
+        previous_period_end,
+    )
+
+    logger.info(
+        "Subscription %s for org %s downgraded to Free — enqueued downgrade tasks.",
+        subscription.id,
+        subscription.organization.slug_name,
+    )
+    return True
+
+
+def renew_subscription(organization, subscription=None, send_email_notification=False):
+    """Enqueue upgrade tasks so services re-activate deactivated resources."""
+    current_subscription = subscription or get_current_subscription(organization)
+    entitlements = _subscription_entitlement_payload(current_subscription)
+    _validate_upgrade_entitlements(
+        entitlements["limits"],
+        entitlements["unlimited_features"],
+    )
+    payload = {
+        "org_slug": organization.slug_name,
+        **entitlements,
+    }
+
+    _send_subscription_tasks("upgrade", payload)
+    if (
+        send_email_notification
+        and subscription is not None
+        and subscription.plan_item
+        and subscription.plan_item.plan
+        and subscription.plan_item.plan.code != PlanCodeType.FREE
+    ):
+        _send_subscription_expired_email(
+            subscription,
+            subscription.plan_item.plan.name,
+            subscription.period_end,
+        )
+
+    logger.info(
+        "Org %s subscription renewed — enqueued upgrade tasks.",
+        organization.slug_name,
+    )

@@ -59,16 +59,29 @@ class OrganizationSettingSerializer(serializers.ModelSerializer):
         }
 
 
-class OrganizationSettingsExpandedSerializer(OrganizationSettingSerializer):
+class OrganizationSettingWithPagesSerializer(OrganizationSettingSerializer):
     custom_pages = CustomPageSerializer(
-        source="organization.organization_custom_page",
         many=True,
         read_only=True,
+        source="organization_setting_custom_page",
+    )
+
+    class Meta(OrganizationSettingSerializer.Meta):
+        fields = OrganizationSettingSerializer.Meta.fields + [
+            "custom_pages",
+        ]
+
+
+class UpdateOrganizationSettingSerializer(OrganizationSettingSerializer):
+    custom_pages = CustomPageSerializer(
+        many=True,
+        required=False,
+        source="organization_setting_custom_page",
     )
     custom_emails = OrganizationEmailSerializer(
-        source="organization.organization_custom_emails",
         many=True,
-        read_only=True,
+        required=False,
+        source="organization_setting_custom_emails",
     )
 
     class Meta(OrganizationSettingSerializer.Meta):
@@ -77,89 +90,72 @@ class OrganizationSettingsExpandedSerializer(OrganizationSettingSerializer):
             "custom_emails",
         ]
 
-
-class OrganizationSettingsWithCustomPagesSerializer(OrganizationSettingSerializer):
-    custom_pages = CustomPageSerializer(
-        source="organization.organization_custom_page",
-        many=True,
-        read_only=True,
-    )
-
-    class Meta(OrganizationSettingSerializer.Meta):
-        fields = OrganizationSettingSerializer.Meta.fields + [
-            "custom_pages",
-        ]
-
-
-class UpdateOrganizationSettingSerializer(serializers.Serializer):
-    id = serializers.UUIDField(read_only=True)
-    site_title = serializers.CharField(required=False, allow_blank=True)
-    site_description = serializers.CharField(required=False, allow_blank=True)
-    border_radius = serializers.JSONField(required=False)
-    themes = OrganizationThemeSerializer(many=True, required=False)
-    custom_pages = CustomPageSerializer(many=True, required=False)
-    custom_emails = OrganizationEmailSerializer(many=True, required=False)
-    brand_name = serializers.CharField(required=False, allow_blank=True)
-    created_at = serializers.DateTimeField(read_only=True)
-    updated_at = serializers.DateTimeField(read_only=True)
-
-    def _save_instance(self, instance, data):
-        for attr, value in data.items():
-            setattr(instance, attr, value)
+    def _update_instance(self, instance, data):
+        for field, value in data.items():
+            setattr(instance, field, value)
         instance.save()
 
-    def _get_instance(self, queryset, data, fallback_field, default=None):
-        data = data.copy()
-        object_id = data.pop("id", None)
-        fallback_value = data.get(fallback_field)
-        instance = queryset.filter(id=object_id).first() if object_id else None
-        if instance is None and fallback_value:
-            instance = queryset.filter(**{fallback_field: fallback_value}).first()
-        return instance or default(data)
-
-    def _update_themes(self, instance, themes_data):
-        for theme_data in themes_data or []:
-            theme = self._get_instance(
-                instance.themes,
-                theme_data,
-                "theme_key",
-                lambda data: instance.themes.create(
-                    theme_key=data.get("theme_key") or "light"
-                ),
-            )
-            self._save_instance(theme, theme_data)
-
-    def _update_custom_emails(self, instance, custom_emails_data):
-        if not custom_emails_data:
+    def _upsert(
+        self,
+        manager,
+        items,
+        *,
+        lookup_field,
+        create_kwargs=None,
+        create_if_missing=True,
+    ):
+        if not items:
             return
 
-        emails = instance.organization.organization_custom_emails
-        for custom_email_data in custom_emails_data:
-            custom_email = self._get_instance(
-                emails,
-                custom_email_data,
-                "email_type",
-                lambda data: emails.create(
-                    email_type=data.get("email_type"),
-                ),
-            )
-            self._save_instance(custom_email, custom_email_data)
+        create_kwargs = create_kwargs or {}
+        for data in items:
+            data = data.copy()
+            object_id = data.pop("id", None)
+            lookup_value = data.get(lookup_field)
+            object = None
 
-    def update(self, instance, validated_data):
-        with transaction.atomic():
-            custom_pages_data = validated_data.pop("custom_pages", [])
-            custom_emails_data = validated_data.pop("custom_emails", [])
-            themes_data = validated_data.pop("themes", [])
+            if object_id:
+                object = manager.filter(id=object_id).first()
 
-            self._save_instance(instance, validated_data)
-            self._update_themes(instance, themes_data)
-            self._update_custom_emails(instance, custom_emails_data)
+            if object is None and lookup_value is not None:
+                object = manager.filter(**{lookup_field: lookup_value}).first()
 
-            pages = instance.organization.organization_custom_page
-            for page_data in custom_pages_data:
-                page = self._get_instance(pages, page_data, "page_type")
-                if page is None:
+            if object is None:
+                if not create_if_missing:
                     continue
-                self._save_instance(page, page_data)
+
+                create_data = dict(create_kwargs)
+                if lookup_field is not None and lookup_value is not None:
+                    create_data[lookup_field] = lookup_value
+
+                object = manager.create(**create_data)
+            self._update_instance(object, data)
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        themes = validated_data.pop("themes", [])
+        custom_pages = validated_data.pop("organization_setting_custom_page", [])
+        custom_emails = validated_data.pop("organization_setting_custom_emails", [])
+
+        self._update_instance(instance, validated_data)
+
+        self._upsert(
+            manager=instance.themes,
+            items=themes,
+            lookup_field="theme_key",
+            create_kwargs={"theme_key": "light"},
+        )
+
+        self._upsert(
+            manager=instance.organization_setting_custom_emails,
+            items=custom_emails,
+            lookup_field="email_type",
+        )
+
+        self._upsert(
+            manager=instance.organization_setting_custom_page,
+            items=custom_pages,
+            lookup_field="page_type",
+        )
 
         return instance

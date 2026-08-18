@@ -24,9 +24,11 @@ from django.forms.models import model_to_dict
 from django.utils import timezone
 
 from apps.authentication.models import RootUser
+from apps.billing.services.subscription import create_default_subscription
 from apps.custom_email.service import create_default_organization_email
 from apps.custom_page.service import create_default_pages
 from apps.organization.models import Organization
+from apps.organization_monitoring.services import create_default_organization_monitoring
 from apps.organization_roles.constants import OrganizationRoleType
 from apps.organization_roles.models import OrganizationRoleUser
 from apps.organization_roles.services import (
@@ -121,9 +123,11 @@ class Command(BaseCommand):
 
         organization_policies = create_default_policies(organization)
 
-        create_default_pages(organization)
-        create_default_organization_email(organization)
-        create_default_organization_setting(organization)
+        organization_setting = create_default_organization_setting(organization)
+        create_default_pages(organization_setting)
+        create_default_organization_email(organization_setting)
+        create_default_organization_monitoring(organization)
+        create_default_subscription(organization)
         self.stdout.write(self.style.SUCCESS("Created default policies"))
 
         role_mappings = [

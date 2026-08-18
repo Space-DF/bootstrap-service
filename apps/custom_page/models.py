@@ -2,14 +2,16 @@ from common.models.base_model import BaseModel
 from django.db import models
 
 from apps.custom_page.constants import PageTypes
-from apps.organization.models import Organization
+from apps.organization_setting.models import OrganizationSetting
 
 
 class CustomPage(BaseModel):
-    organization = models.ForeignKey(
-        Organization,
+    organization_setting = models.ForeignKey(
+        OrganizationSetting,
         on_delete=models.CASCADE,
-        related_name="organization_custom_page",
+        related_name="organization_setting_custom_page",
+        null=True,
+        blank=True,
     )
     page_type = models.CharField(max_length=255, choices=PageTypes.choices)
     title = models.CharField(max_length=255)

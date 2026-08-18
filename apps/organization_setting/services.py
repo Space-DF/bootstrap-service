@@ -69,3 +69,4 @@ def create_default_organization_setting(organization: Organization):
             ),
         ]
     )
+    return setting
