@@ -14,15 +14,14 @@ from utils.views import OrganizationListAPIView
 class ListCustomEmailView(QuotaMixin, OrganizationListAPIView):
     serializer_class = OrganizationEmailSerializer
     queryset = OrganizationEmail.objects.select_related(
-        "organization",
-        "organization__organization_settings",
+        "organization_setting"
     ).prefetch_related(
         Prefetch(
-            "organization__organization_settings__themes",
+            "organization_setting__themes",
             queryset=OrganizationTheme.objects.all(),
         )
     )
-    organization_field = "organization"
+    organization_field = "organization_setting__organization"
     pagination_class = BasePagination
     filterset_fields = ["email_type"]
     filter_backends = [DjangoFilterBackend, OrderingFilter]

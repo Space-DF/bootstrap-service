@@ -84,6 +84,18 @@ class OrganizationAPIView(GenericAPIView):
         return serializer.save()
 
 
+class OrganizationCreateAPIView(mixins.CreateModelMixin, OrganizationAPIView):
+    """
+    Concrete view for creating a model instance of organization.
+    """
+
+    def perform_create(self, serializer):
+        self.create_with_organization(serializer)
+
+    def post(self, request, *args, **kwargs):
+        return self.create(request, *args, **kwargs)
+
+
 class OrganizationListAPIView(mixins.ListModelMixin, OrganizationAPIView):
     """
     Concrete view for listing a queryset of organization.
@@ -100,3 +112,95 @@ class OrganizationRetrieveAPIView(mixins.RetrieveModelMixin, OrganizationAPIView
 
     def get(self, request, *args, **kwargs):
         return self.retrieve(request, *args, **kwargs)
+
+
+class OrganizationDestroyAPIView(mixins.DestroyModelMixin, OrganizationAPIView):
+    """
+    Concrete view for deleting a model instance of organization.
+    """
+
+    def delete(self, request, *args, **kwargs):
+        return self.destroy(request, *args, **kwargs)
+
+
+class OrganizationUpdateAPIView(mixins.UpdateModelMixin, OrganizationAPIView):
+    """
+    Concrete view for updating a model instance of organization.
+    """
+
+    def put(self, request, *args, **kwargs):
+        return self.update(request, *args, **kwargs)
+
+    def patch(self, request, *args, **kwargs):
+        return self.partial_update(request, *args, **kwargs)
+
+
+class OrganizationListCreateAPIView(
+    mixins.ListModelMixin, mixins.CreateModelMixin, OrganizationAPIView
+):
+    """
+    Concrete view for listing a queryset or creating a model instance of organization.
+    """
+
+    def perform_create(self, serializer):
+        self.create_with_organization(serializer)
+
+    def get(self, request, *args, **kwargs):
+        return self.list(request, *args, **kwargs)
+
+    def post(self, request, *args, **kwargs):
+        return self.create(request, *args, **kwargs)
+
+
+class OrganizationRetrieveUpdateAPIView(
+    mixins.RetrieveModelMixin, mixins.UpdateModelMixin, OrganizationAPIView
+):
+    """
+    Concrete view for retrieving, updating a model instance of organization.
+    """
+
+    def get(self, request, *args, **kwargs):
+        return self.retrieve(request, *args, **kwargs)
+
+    def put(self, request, *args, **kwargs):
+        return self.update(request, *args, **kwargs)
+
+    def patch(self, request, *args, **kwargs):
+        return self.partial_update(request, *args, **kwargs)
+
+
+class OrganizationRetrieveDestroyAPIView(
+    mixins.RetrieveModelMixin, mixins.DestroyModelMixin, OrganizationAPIView
+):
+    """
+    Concrete view for retrieving or deleting a model instance of organization.
+    """
+
+    def get(self, request, *args, **kwargs):
+        return self.retrieve(request, *args, **kwargs)
+
+    def delete(self, request, *args, **kwargs):
+        return self.destroy(request, *args, **kwargs)
+
+
+class OrganizationRetrieveUpdateDestroyAPIView(
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    OrganizationAPIView,
+):
+    """
+    Concrete view for retrieving, updating or deleting a model instance of organization.
+    """
+
+    def get(self, request, *args, **kwargs):
+        return self.retrieve(request, *args, **kwargs)
+
+    def put(self, request, *args, **kwargs):
+        return self.update(request, *args, **kwargs)
+
+    def patch(self, request, *args, **kwargs):
+        return self.partial_update(request, *args, **kwargs)
+
+    def delete(self, request, *args, **kwargs):
+        return self.destroy(request, *args, **kwargs)

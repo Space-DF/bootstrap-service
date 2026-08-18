@@ -2,14 +2,16 @@ from common.models.base_model import BaseModel
 from django.db import models
 
 from apps.custom_email.constants import EmailTypes
-from apps.organization.models import Organization
+from apps.organization_setting.models import OrganizationSetting
 
 
 class OrganizationEmail(BaseModel):
-    organization = models.ForeignKey(
-        Organization,
+    organization_setting = models.ForeignKey(
+        OrganizationSetting,
         on_delete=models.CASCADE,
-        related_name="organization_custom_emails",
+        related_name="organization_setting_custom_emails",
+        null=True,
+        blank=True,
     )
     email_type = models.CharField(max_length=255, choices=EmailTypes.choices)
     sender_name = models.CharField(max_length=255, blank=True)
@@ -25,7 +27,7 @@ class OrganizationEmail(BaseModel):
         db_table = "custom_emails"
         constraints = [
             models.UniqueConstraint(
-                fields=["organization", "email_type"],
+                fields=["organization_setting", "email_type"],
                 name="unique_organization_email_type",
             )
         ]
