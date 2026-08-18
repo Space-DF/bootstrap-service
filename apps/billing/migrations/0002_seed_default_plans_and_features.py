@@ -95,6 +95,7 @@ FREE_FEATURES = {
     "device.max_count": {"enabled": True, "limit_value": 10},
     "space.max_count": {"enabled": True, "limit_value": 1},
     "dashboard.max_count": {"enabled": True, "limit_value": 1},
+    "automation.max_count": {"enabled": True, "limit_value": 0},
     "dashboard.basic_widgets": {"enabled": True, "limit_value": None},
     "map_view.2d": {"enabled": True, "limit_value": None},
     "map_view.3d": {"enabled": True, "limit_value": None},

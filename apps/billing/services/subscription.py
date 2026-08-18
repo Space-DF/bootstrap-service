@@ -1,9 +1,10 @@
 import logging
+from dataclasses import dataclass
 from datetime import timedelta
 from urllib.parse import urljoin
 
-from common.apps.billing.constants import FeatureUsageScope
-from common.celery.task_senders import send_task
+from common.apps.billing.constants import FeatureCode, FeatureUsageScope
+from common.celery.task_senders import send_subscription_task
 from common.utils.email_context import get_email_context, render_email_format
 from common.utils.send_email import send_email
 from django.conf import settings
@@ -24,6 +25,35 @@ from apps.organization_roles.constants import OrganizationRoleType
 from apps.organization_roles.models import OrganizationRoleUser
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class SubscriptionTask:
+    """A service that participates in subscription lifecycle events.
+
+    ``task_name`` is derived from service + lifecycle (e.g. ``device_downgrade``)
+    so adding a service is one entry below, not two. ``required_features`` lists
+    the feature codes the caller must supply limits/entitlements for before the
+    task is dispatched (empty = no gating, e.g. console housekeeping).
+    """
+
+    service: str
+    required_features: tuple = ()
+
+    def task_name(self, lifecycle: str) -> str:
+        return f"{self.service}_{lifecycle}"
+
+
+# Single source of truth for which services get subscription lifecycle tasks.
+# To add a service: append one SubscriptionTask here.
+# NOTE: "auth" gates SPACE_MAX_COUNT because the auth-service owns the Space model.
+SUBSCRIPTION_SERVICES = (
+    SubscriptionTask("device", (FeatureCode.DEVICE_MAX_COUNT,)),
+    SubscriptionTask("auth", (FeatureCode.SPACE_MAX_COUNT,)),
+    SubscriptionTask("dashboard", (FeatureCode.DASHBOARD_MAX_COUNT,)),
+    SubscriptionTask("console", ()),
+    SubscriptionTask("telemetry", (FeatureCode.AUTOMATION_MAX_COUNT,)),
+)
 
 
 def get_free_plan_item():
@@ -351,34 +381,112 @@ def get_quotas(organization, feature_codes, scope_type=None, scope_id=None):
     }
 
 
-def _get_free_plan_limits():
-    """Cached Free plan limits dict — queried once per hour."""
-    cache_key = "billing:free_plan_limits"
-    limits = cache.get(cache_key)
-    if limits is not None:
-        return limits
+def _get_plan_entitlements(plan):
+    if plan is None:
+        return {}, set()
 
-    from apps.billing.models import Plan, PlanFeature
+    cache_key = ":".join(("billing", "plan_entitlements", str(plan.id)))
+    entitlements = cache.get(cache_key)
+    if entitlements is not None:
+        return entitlements["limits"], set(entitlements["unlimited_features"])
 
-    free_plan = Plan.objects.filter(code=PlanCodeType.FREE).first()
     limits = {}
-    if free_plan:
-        for pf in (
-            PlanFeature.objects.filter(plan=free_plan)
-            .select_related("feature")
-            .iterator()
-        ):
-            code = pf.feature.code
-            if pf.limit_value is not None:
-                limits[code] = pf.limit_value
+    unlimited_features = set()
+    for pf in (
+        PlanFeature.objects.filter(plan=plan, enabled=True)
+        .select_related("feature")
+        .iterator()
+    ):
+        code = pf.feature.code
+        if pf.limit_value is not None:
+            if pf.limit_value < 0:
+                raise ValueError(f"plan limit {code} must be >= 0")
+            limits[code] = pf.limit_value
+        else:
+            unlimited_features.add(code)
 
-    cache.set(cache_key, limits, 3600)
+    cache.set(
+        cache_key,
+        {
+            "limits": limits,
+            "unlimited_features": tuple(sorted(unlimited_features)),
+        },
+        3600,
+    )
+    return limits, unlimited_features
+
+
+def _get_plan_limits(plan):
+    limits, _ = _get_plan_entitlements(plan)
     return limits
 
 
-def _send_subscription_tasks(prefix, payload):
-    for service in ("device", "space", "dashboard", "console", "automation"):
-        send_task(f"{service}_{prefix}", payload)
+def _get_free_plan_limits():
+    """Cached Free plan limits dict"""
+    from apps.billing.models import Plan
+
+    free_plan = Plan.objects.filter(code=PlanCodeType.FREE).first()
+    return _get_plan_limits(free_plan)
+
+
+def _subscription_entitlement_payload(subscription):
+    if (
+        subscription is None
+        or not subscription.plan_item
+        or not subscription.plan_item.plan
+    ):
+        raise ValueError("subscription with plan is required for subscription upgrade")
+
+    limits, unlimited_features = _get_plan_entitlements(subscription.plan_item.plan)
+    return {
+        "limits": limits,
+        "unlimited_features": sorted(unlimited_features),
+    }
+
+
+def _send_subscription_tasks(lifecycle, payload):
+    for task in SUBSCRIPTION_SERVICES:
+        send_subscription_task(
+            task.service, lifecycle, task.task_name(lifecycle), payload
+        )
+
+
+def _required_subscription_features():
+    """All feature codes any subscription task requires (across all services)."""
+    return {code for task in SUBSCRIPTION_SERVICES for code in task.required_features}
+
+
+def _validate_no_negative_limits(limits, lifecycle):
+    negative = [
+        code for code, value in limits.items() if value is not None and value < 0
+    ]
+    if negative:
+        raise ValueError(
+            f"{lifecycle} limits must be >= 0: " + ", ".join(sorted(negative))
+        )
+
+
+def _validate_downgrade_limits(limits):
+    required = _required_subscription_features()
+    missing = [code for code in required if code not in limits]
+    if missing:
+        raise ValueError(
+            "missing required downgrade limits: " + ", ".join(sorted(missing))
+        )
+    _validate_no_negative_limits(limits, "downgrade")
+
+
+def _validate_upgrade_entitlements(limits, unlimited_features):
+    required = _required_subscription_features()
+    unlimited = set(unlimited_features)
+    missing = [
+        code for code in required if code not in limits and code not in unlimited
+    ]
+    if missing:
+        raise ValueError(
+            "missing required upgrade entitlements: " + ", ".join(sorted(missing))
+        )
+    _validate_no_negative_limits(limits, "upgrade")
 
 
 def _user_display_name(user):
@@ -523,6 +631,9 @@ def downgrade_to_free(organization):
         )
         return
 
+    limits = _get_plan_limits(free_item.plan)
+    _validate_downgrade_limits(limits)
+
     with transaction.atomic():
         subscription = get_current_subscription(organization, for_update=True)
         if subscription is None:
@@ -554,10 +665,10 @@ def downgrade_to_free(organization):
             organization.slug_name,
         )
 
-    limits = _get_free_plan_limits()
     payload = {
         "org_slug": organization.slug_name,
         "limits": limits,
+        "unlimited_features": [],
         "downgraded_at": now.isoformat(),
     }
 
@@ -607,14 +718,16 @@ def downgrade_subscription_to_free(subscription):
     """Downgrade a specific subscription row to Free and enforce Free limits."""
     previous_plan_item = subscription.plan_item
     previous_period_end = subscription.period_end
+    limits = _get_free_plan_limits()
+    _validate_downgrade_limits(limits)
     updated = _update_subscription_to_free(subscription)
     if not updated:
         return False
 
-    limits = _get_free_plan_limits()
     payload = {
         "org_slug": subscription.organization.slug_name,
         "limits": limits,
+        "unlimited_features": [],
         "downgraded_at": timezone.now().isoformat(),
     }
     _send_subscription_tasks("downgrade", payload)
@@ -634,7 +747,16 @@ def downgrade_subscription_to_free(subscription):
 
 def renew_subscription(organization, subscription=None, send_email_notification=False):
     """Enqueue upgrade tasks so services re-activate deactivated resources."""
-    payload = {"org_slug": organization.slug_name}
+    current_subscription = subscription or get_current_subscription(organization)
+    entitlements = _subscription_entitlement_payload(current_subscription)
+    _validate_upgrade_entitlements(
+        entitlements["limits"],
+        entitlements["unlimited_features"],
+    )
+    payload = {
+        "org_slug": organization.slug_name,
+        **entitlements,
+    }
 
     _send_subscription_tasks("upgrade", payload)
     if (
