@@ -1,15 +1,17 @@
+from common.apps.billing.mixins import QuotaMixin
 from common.pagination.base_pagination import BasePagination
 from django.db.models import Prefetch
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import OrderingFilter
 
+from apps.billing.quotas import WhitelabelQuota
 from apps.custom_email.models import OrganizationEmail
 from apps.custom_email.serializers import OrganizationEmailSerializer
 from apps.organization_setting.models import OrganizationTheme
 from utils.views import OrganizationListAPIView
 
 
-class ListCustomEmailView(OrganizationListAPIView):
+class ListCustomEmailView(QuotaMixin, OrganizationListAPIView):
     serializer_class = OrganizationEmailSerializer
     queryset = OrganizationEmail.objects.select_related(
         "organization",
@@ -25,3 +27,4 @@ class ListCustomEmailView(OrganizationListAPIView):
     filterset_fields = ["email_type"]
     filter_backends = [DjangoFilterBackend, OrderingFilter]
     ordering = ["-created_at"]
+    quota_classes = [WhitelabelQuota]
