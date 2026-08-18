@@ -11,8 +11,8 @@ from utils.views import OrganizationListAPIView
 
 class ListCustomPageView(QuotaMixin, OrganizationListAPIView):
     serializer_class = CustomPageSerializer
-    queryset = CustomPage.objects.select_related("organization").all()
-    organization_field = "organization"
+    queryset = CustomPage.objects.select_related("organization_setting").all()
+    organization_field = "organization_setting__organization"
     pagination_class = BasePagination
     filter_backends = [DjangoFilterBackend, OrderingFilter]
     ordering = ["-created_at"]
