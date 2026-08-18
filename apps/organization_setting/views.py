@@ -1,7 +1,9 @@
+from common.apps.billing.mixins import QuotaMixin
 from django.shortcuts import get_object_or_404
 from rest_framework import generics
 from rest_framework.response import Response
 
+from apps.billing.quotas import WhitelabelQuota
 from apps.organization.models import Organization
 from apps.organization_setting.models import OrganizationSetting
 from apps.organization_setting.serializers import (
@@ -10,7 +12,7 @@ from apps.organization_setting.serializers import (
 )
 
 
-class UpdateOrganizationSettingView(generics.UpdateAPIView):
+class UpdateOrganizationSettingView(QuotaMixin, generics.UpdateAPIView):
     serializer_class = UpdateOrganizationSettingSerializer
     queryset = OrganizationSetting.objects.select_related(
         "organization"
@@ -19,6 +21,7 @@ class UpdateOrganizationSettingView(generics.UpdateAPIView):
         "organization__organization_custom_emails",
         "organization__organization_custom_page",
     )
+    quota_classes = [WhitelabelQuota]
 
     def get_object(self):
         organization = get_object_or_404(
