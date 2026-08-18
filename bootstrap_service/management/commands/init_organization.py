@@ -123,9 +123,9 @@ class Command(BaseCommand):
 
         organization_policies = create_default_policies(organization)
 
-        create_default_pages(organization)
-        create_default_organization_email(organization)
-        create_default_organization_setting(organization)
+        organization_setting = create_default_organization_setting(organization)
+        create_default_pages(organization_setting)
+        create_default_organization_email(organization_setting)
         create_default_organization_monitoring(organization)
         create_default_subscription(organization)
         self.stdout.write(self.style.SUCCESS("Created default policies"))
