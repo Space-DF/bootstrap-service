@@ -47,11 +47,11 @@ def get_default_pages():
     ]
 
 
-def create_default_pages(organization):
+def create_default_pages(organization_setting):
     default_pages = get_default_pages()
     list_data = [
         CustomPage(
-            organization=organization,
+            organization_setting=organization_setting,
             page_type=page.get("page_type"),
             title=page.get("title"),
             subtitle=page.get("subtitle"),

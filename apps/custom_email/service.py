@@ -9,11 +9,7 @@ from apps.organization_setting.constants import ThemeType
 def get_theme_logo_url(instance, theme_key):
     host = settings.HOST.rstrip("/")
     default_logo = "logo_white.png" if theme_key == ThemeType.DARK else "logo_black.png"
-    organization = getattr(instance, "organization", None)
-    if not organization:
-        return f"{host}/static/images/branding/{default_logo}"
-
-    setting = getattr(organization, "organization_settings", None)
+    setting = getattr(instance, "organization_setting", None)
     if not setting:
         return f"{host}/static/images/branding/{default_logo}"
 
@@ -80,10 +76,10 @@ def get_default_organization_emails():
     ]
 
 
-def create_default_organization_email(organization):
+def create_default_organization_email(organization_setting):
     return OrganizationEmail.objects.bulk_create(
         [
-            OrganizationEmail(organization=organization, **email_data)
+            OrganizationEmail(organization_setting=organization_setting, **email_data)
             for email_data in get_default_organization_emails()
         ]
     )

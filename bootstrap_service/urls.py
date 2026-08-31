@@ -63,5 +63,8 @@ urlpatterns = [
     path("api/", include("apps.custom_page.urls")),
     path("api/", include("apps.custom_email.urls")),
     path("api/", include("apps.organization_setting.urls")),
+    path("api/", include("apps.organization_monitoring.urls")),
+    path("api/", include("apps.billing.urls")),
+    path("api/", include("apps.contact_sales.urls")),
     path("api/", include("apps.organization.urls")),
 ]

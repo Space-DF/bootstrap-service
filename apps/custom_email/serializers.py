@@ -67,10 +67,5 @@ class OrganizationEmailSerializer(serializers.ModelSerializer):
         return get_theme_logo_url(instance, "light")
 
     def get_brand_name(self, instance):
-        organization = getattr(instance, "organization", None)
-        setting = (
-            getattr(organization, "organization_settings", None)
-            if organization
-            else None
-        )
+        setting = getattr(instance, "organization_setting", None)
         return getattr(setting, "brand_name", "") or ""

@@ -5,13 +5,13 @@ from rest_framework import status, views
 from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.response import Response
 
+from apps.billing.constants import PlanCodeType
+from apps.billing.services.subscription import get_current_subscription
 from apps.organization.models import Organization
 from apps.organization.serializers import OrganizationSerializer
 from apps.organization.services import get_owner_name_query_set
 from apps.organization_setting.models import OrganizationSetting
-from apps.organization_setting.serializers import (
-    OrganizationSettingsWithCustomPagesSerializer,
-)
+from apps.organization_setting.serializers import OrganizationSettingWithPagesSerializer
 from utils.views import OrganizationRetrieveAPIView
 
 
@@ -72,19 +72,26 @@ class CheckOrganizationView(views.APIView):
             .select_related("organization")
             .prefetch_related(
                 "themes",
-                "organization__organization_custom_emails",
-                "organization__organization_custom_page",
+                "organization_setting_custom_emails",
+                "organization_setting_custom_page",
             )
             .first()
+        )
+        subscription = get_current_subscription(organization)
+        plan_code = (
+            subscription.plan_item.plan.code
+            if subscription and subscription.plan_item and subscription.plan_item.plan
+            else PlanCodeType.FREE
         )
 
         return Response(
             {
                 "result": result,
                 "template": organization.template,
-                "setting": OrganizationSettingsWithCustomPagesSerializer(setting).data
+                "setting": OrganizationSettingWithPagesSerializer(setting).data
                 if setting
                 else None,
+                "plan": plan_code,
             },
             status=status.HTTP_200_OK,
         )
