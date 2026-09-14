@@ -21,13 +21,13 @@ urlpatterns = [
         name="organization-monitoring-detail",
     ),
     path(
-        "console/organizations/monitoring",
+        "bootstrap/organizations/monitoring",
         MonitoringListCreateView.as_view(),
-        name="console-organization-monitoring-list",
+        name="bootstrap-organization-monitoring-list",
     ),
     path(
-        "console/organizations/monitoring/<uuid:pk>",
+        "bootstrap/organizations/monitoring/<uuid:pk>",
         MonitoringDetailView.as_view(),
-        name="console-organization-monitoring-detail",
+        name="bootstrap-organization-monitoring-detail",
     ),
 ]

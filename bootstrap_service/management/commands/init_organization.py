@@ -52,6 +52,9 @@ class Command(BaseCommand):
             "--owner-email", type=str, help="Owner email", required=False
         )
         parser.add_argument(
+            "--org-template", type=str, help="Organization template", required=False
+        )
+        parser.add_argument(
             "--owner-password", type=str, help="Owner password", required=False
         )
 
