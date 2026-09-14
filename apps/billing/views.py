@@ -1,56 +1,9 @@
-from common.pagination.base_pagination import BasePagination
-from django.db.models import Min, Prefetch
-from rest_framework import generics, permissions, status
-from rest_framework.filters import OrderingFilter
+from rest_framework import generics, status
 from rest_framework.response import Response
 
-from apps.billing.models import Plan, PlanItem
-from apps.billing.serializers import (
-    PlanWithFeaturesSerializer,
-    ReserveQuotaSerializer,
-    ViewQuotaSerializer,
-)
+from apps.billing.serializers import ReserveQuotaSerializer, ViewQuotaSerializer
 from apps.billing.services.subscription import get_quota, release_quota, reserve_quota
 from utils.request_context import resolve_organization_from_header
-
-
-class PlanListView(generics.ListAPIView):
-    """List active subscription plans with their feature definitions."""
-
-    serializer_class = PlanWithFeaturesSerializer
-    pagination_class = BasePagination
-    filter_backends = [OrderingFilter]
-    ordering = ["price"]
-    ordering_fields = ["code", "name", "price"]
-    queryset = (
-        Plan.objects.filter(plan_items__is_active=True)
-        .annotate(price=Min("plan_items__price"))
-        .prefetch_related(
-            Prefetch(
-                "plan_items",
-                queryset=PlanItem.objects.filter(is_active=True).order_by("price"),
-            ),
-            "plan_features__feature",
-        )
-    )
-
-
-class PlanDetailView(generics.RetrieveAPIView):
-    authentication_classes = []
-    permission_classes = [permissions.AllowAny]
-    serializer_class = PlanWithFeaturesSerializer
-    lookup_field = "code"
-    queryset = (
-        Plan.objects.filter(plan_items__is_active=True)
-        .distinct()
-        .prefetch_related(
-            Prefetch(
-                "plan_items",
-                queryset=PlanItem.objects.filter(is_active=True).order_by("price"),
-            ),
-            "plan_features__feature",
-        )
-    )
 
 
 class ReserveQuotaView(generics.GenericAPIView):
@@ -62,7 +15,7 @@ class ReserveQuotaView(generics.GenericAPIView):
         {
             "feature": "<code>",
             "amount": 1,
-            "scope_type": "user",
+            "scope_type": "<user>",
             "scope_id": "<uuid>"
         }
 

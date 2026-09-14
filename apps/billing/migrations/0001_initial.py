@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ("organization", "0004_alter_organization_template"),
+        ("organization", "0001_initial"),
     ]
 
     operations = [

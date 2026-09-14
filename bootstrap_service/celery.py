@@ -7,11 +7,7 @@ if importlib.util.find_spec("common") is None:
 
 from celery import Celery
 from common.celery import constants
-from common.celery.routing import (
-    append_unique_task_queues,
-    setup_subscription_task_routing,
-)
-from console_service.constants import CONSOLE_DOWNGRADE_TASK, CONSOLE_UPGRADE_TASK
+from common.celery.routing import append_unique_task_queues
 from dotenv import load_dotenv
 from kombu import Exchange, Queue
 
@@ -21,20 +17,6 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "bootstrap_service.settings")
 app = Celery("bootstrap_service")
 app.config_from_object("django.conf:settings", namespace="CELERY")
 app.autodiscover_tasks()
-setup_subscription_task_routing(
-    [
-        {
-            "task_name": CONSOLE_DOWNGRADE_TASK,
-            "service": "console",
-            "lifecycle": "downgrade",
-        },
-        {
-            "task_name": CONSOLE_UPGRADE_TASK,
-            "service": "console",
-            "lifecycle": "upgrade",
-        },
-    ]
-)
 
 
 TASKS_CONSOLE = [

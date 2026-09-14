@@ -66,7 +66,6 @@ INSTALLED_APPS = [
     "apps.organization_setting",
     "apps.organization_monitoring",
     "apps.billing",
-    "apps.contact_sales",
     "apps.organization_roles",
     "apps.authentication",
 ]
@@ -244,9 +243,6 @@ EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
 
 BILLING_QUOTA_SERVICE = "apps.billing.services.quota_service.billing_quota_service"
-
-# Inbox that receives contact-sales requests for manual follow-up.
-SALES_CONTACT_EMAIL = os.getenv("SALES_CONTACT_EMAIL", "sales@spacedf.com")
 
 CACHES = {
     "default": {

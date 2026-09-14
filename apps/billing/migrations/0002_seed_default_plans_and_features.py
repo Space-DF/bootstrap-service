@@ -1,21 +1,15 @@
-"""Seed default Free and Pro plans with their feature definitions."""
+"""Seed the default Community plan with its feature definitions."""
 
 from django.db import migrations
 
 # Plan codes
 FREE_PLAN_CODE = "free"
-PRO_PLAN_CODE = "pro"
 
 PLANS = [
     {
         "code": FREE_PLAN_CODE,
-        "name": "Free",
-        "description": "First 10 devices free.\n1 week Data Retention",
-    },
-    {
-        "code": PRO_PLAN_CODE,
-        "name": "Pro",
-        "description": "Up to 100 devices\n6 months Data Retention",
+        "name": "Community",
+        "description": "Default open-source workspace limits.",
     },
 ]
 
@@ -27,35 +21,15 @@ PLAN_ITEMS = [
         "discount": 0,
         "billing_cycle": "monthly",
     },
-    {
-        "plan_code": PRO_PLAN_CODE,
-        "price": 99,
-        "currency": "USD",
-        "discount": 10,
-        "billing_cycle": "monthly",
-    },
 ]
 
-# Feature catalog (9 features). value_type drives the PlanFeature shape:
+# Feature catalog. value_type drives the PlanFeature shape:
 #   limit    -> limit_value is the numeric cap (null = unlimited)
-#   quota    -> limit_value is the quota amount
 #   boolean  -> limit_value is null; use `enabled`
 FEATURES = [
     {"code": "device.max_count", "name": "Device(s)", "value_type": "limit"},
     {"code": "space.max_count", "name": "Space(s)", "value_type": "limit"},
     {"code": "dashboard.max_count", "name": "Dashboard(s)", "value_type": "limit"},
-    {
-        "code": "dashboard.basic_widgets",
-        "name": "Basic widgets",
-        "value_type": "boolean",
-    },
-    {
-        "code": "dashboard.custom_charts",
-        "name": "Custom charts & maps",
-        "value_type": "boolean",
-    },
-    {"code": "map_view.2d", "name": "2D map view", "value_type": "boolean"},
-    {"code": "map_view.3d", "name": "3D map view", "value_type": "boolean"},
     {
         "code": "whitelabel.enabled",
         "name": "White-label branding",
@@ -66,28 +40,6 @@ FEATURES = [
         "name": "Automation",
         "value_type": "limit",
     },
-    {
-        "code": "data_retention.days",
-        "name": "Data retention (days)",
-        "value_type": "quota",
-    },
-    {
-        "code": "support.onboarding_video",
-        "name": "Onboarding video",
-        "value_type": "boolean",
-    },
-    {"code": "support.email", "name": "Email support", "value_type": "boolean"},
-    {
-        "code": "support.email_community",
-        "name": "Email, community support",
-        "value_type": "boolean",
-    },
-    {"code": "support.priority", "name": "Priority support", "value_type": "boolean"},
-    {
-        "code": "support.fully_maintenance",
-        "name": "Fully maintenance",
-        "value_type": "boolean",
-    },
 ]
 
 # Per-plan feature values. Keys are feature codes;
@@ -96,35 +48,11 @@ FREE_FEATURES = {
     "space.max_count": {"enabled": True, "limit_value": 1},
     "dashboard.max_count": {"enabled": True, "limit_value": 1},
     "automation.max_count": {"enabled": True, "limit_value": 0},
-    "dashboard.basic_widgets": {"enabled": True, "limit_value": None},
-    "map_view.2d": {"enabled": True, "limit_value": None},
-    "map_view.3d": {"enabled": True, "limit_value": None},
-    "data_retention.days": {"enabled": True, "limit_value": 7},
-    "support.onboarding_video": {"enabled": True, "limit_value": None},
-    "support.email": {"enabled": True, "limit_value": None},
-}
-
-PRO_FEATURES = {
-    "device.max_count": {"enabled": True, "limit_value": 100},
-    "space.max_count": {"enabled": True, "limit_value": None},
-    "dashboard.max_count": {"enabled": True, "limit_value": None},
-    "dashboard.basic_widgets": {"enabled": True, "limit_value": None},
-    "dashboard.custom_charts": {"enabled": True, "limit_value": None},
-    "map_view.2d": {"enabled": True, "limit_value": None},
-    "map_view.3d": {"enabled": True, "limit_value": None},
     "whitelabel.enabled": {"enabled": True, "limit_value": None},
-    "data_retention.days": {"enabled": True, "limit_value": 180},
-    "support.onboarding_video": {"enabled": True, "limit_value": None},
-    "support.email": {"enabled": True, "limit_value": None},
-    "support.email_community": {"enabled": True, "limit_value": None},
-    "support.priority": {"enabled": True, "limit_value": None},
-    "support.fully_maintenance": {"enabled": True, "limit_value": None},
-    "automation.max_count": {"enabled": True, "limit_value": 5},
 }
 
 PLAN_FEATURE_VALUES = {
     FREE_PLAN_CODE: FREE_FEATURES,
-    PRO_PLAN_CODE: PRO_FEATURES,
 }
 
 FEATURE_CODES = [f["code"] for f in FEATURES]

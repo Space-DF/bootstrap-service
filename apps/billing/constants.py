@@ -4,7 +4,6 @@ from django.db import models
 class PlanCodeType:
     # Plan code used as the default when provisioning a new organization.
     FREE = "free"
-    PRO = "pro"
 
 
 class CurrencyType(models.TextChoices):
