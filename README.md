@@ -13,10 +13,10 @@ git clone -b dev git@github.com:Space-DF/django-common-utils.git
 
 ## Setup
 
-- Install requirements
+- Install dependencies
 
   ```
-  pip install -r requirements.txt
+  uv sync
   ```
 
 - Run RabbitMQ broker
@@ -36,23 +36,23 @@ git clone -b dev git@github.com:Space-DF/django-common-utils.git
 
 - Migrate
   ```
-  python manage.py migrate
+  uv run python manage.py migrate
   ```
 ## Run source code
 - Run server
   ```
-  python manage.py runserver 8000
+  uv run python manage.py runserver 8000
   ```
 
 ## Migration
 When you make the change for the database model
 - Make migration file
   ```
-  python manage.py makemigrations
+  uv run python manage.py makemigrations
   ```
 - Migrate
   ```
-  python manage.py migrate_schemas
+  uv run python manage.py migrate_schemas
   ```
 
 ## License
